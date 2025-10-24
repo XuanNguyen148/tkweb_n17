@@ -362,15 +362,8 @@ function getTrangThaiDisplay($tinhTrang) {
                                             ($userRole == 'Quản lý' || $phieu['MaTK'] == $userId);
                                 ?>
                                 
-                                <?php if ($canEdit): ?>
-                                    <button class="btn btn-edit" onclick="editPhieu('<?php echo $phieu['MaPX']; ?>')">Sửa</button>
-                                <?php endif; ?>
-                                
-                                <?php if ($canDelete): ?>
-                                    <button class="btn btn-delete" onclick="deletePhieu('<?php echo $phieu['MaPX']; ?>')">Xóa</button>
-                                <?php endif; ?>
-                                
-                                <button class="btn btn-status" onclick="viewDetail('<?php echo $phieu['MaPX']; ?>')">Xem Chi Tiết</button>
+                                <button class="btn btn-status" 
+                                        onclick="viewDetail('<?php echo $phieu['MaPX']; ?>', <?php echo $canEdit ? 'true' : 'false'; ?>, <?php echo $canDelete ? 'true' : 'false'; ?>)">Xem Chi Tiết</button>
                                 
                                 <?php if ($userRole == 'Quản lý'): ?>
                                     <button class="btn btn-add" onclick="openStatusModal('<?php echo $phieu['MaPX']; ?>', '<?php echo $phieu['TinhTrang_PX']; ?>')">Cập Nhật TT</button>
@@ -535,7 +528,7 @@ function getTrangThaiDisplay($tinhTrang) {
             }
         }
 
-        function viewDetail(maPX) {
+        function viewDetail(maPX, canEdit, canDelete) {
             fetch(`exports.php?action=get_detail&maPX=${encodeURIComponent(maPX)}`)
                 .then(response => response.json())
                 .then(data => {
@@ -577,8 +570,21 @@ function getTrangThaiDisplay($tinhTrang) {
                         html += `
                                     </tbody>
                                 </table>
-                            </div>
                         `;
+                        
+                        // Thêm các nút hành động vào modal
+                        if (canEdit || canDelete) {
+                            html += `<div style="margin-top: 20px; text-align: center;">`;
+                            if (canEdit) {
+                                html += `<button class="btn btn-edit" onclick="closeModal('detailModal'); editPhieu('${phieu.MaPX}');" style="margin-right: 10px;">Sửa Phiếu</button>`;
+                            }
+                            if (canDelete) {
+                                html += `<button class="btn btn-delete" onclick="closeModal('detailModal'); deletePhieu('${phieu.MaPX}');">Xóa Phiếu</button>`;
+                            }
+                            html += `</div>`;
+                        }
+                        
+                        html += `</div>`;
                         
                         document.getElementById('detailInfo').innerHTML = html;
                         openModal('detailModal');
