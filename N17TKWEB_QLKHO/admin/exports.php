@@ -381,6 +381,13 @@ function getTrangThaiDisplay($tinhTrang) {
         <div class="modal-content" style="max-width: 800px;">
             <span class="close" onclick="closeModal('addModal')">&times;</span>
             <h2 id="modalTitle">Thêm Phiếu Xuất</h2>
+            
+            <!-- Thông tin chỉ đọc (chỉ hiển thị khi sửa) -->
+            <div id="readonlyInfo" style="display: none; background: #f5f8fa; padding: 15px; border-radius: 10px; margin-bottom: 15px;">
+                <p style="margin: 5px 0;"><strong>Người lập phiếu:</strong> <span id="infoNguoiLap"></span></p>
+                <p style="margin: 5px 0;"><strong>Trạng thái:</strong> <span id="infoTrangThai"></span></p>
+            </div>
+            
             <form method="POST" id="phieuForm">
                 <input type="hidden" name="action" id="modalAction" value="add">
                 <input type="text" name="MaPX" id="MaPX" placeholder="Mã Phiếu Xuất" required>
@@ -453,6 +460,9 @@ function getTrangThaiDisplay($tinhTrang) {
             document.getElementById('phieuForm').reset();
             document.getElementById('MaPX').readOnly = false;
             
+            // Ẩn phần thông tin chỉ đọc
+            document.getElementById('readonlyInfo').style.display = 'none';
+            
             // Reset danh sách sản phẩm về 1 dòng
             document.getElementById('productsList').innerHTML = `
                 <div class="product-row" style="display: flex; gap: 10px; margin-bottom: 10px;">
@@ -486,6 +496,11 @@ function getTrangThaiDisplay($tinhTrang) {
                         document.getElementById('MaPX').readOnly = true;
                         document.getElementById('NgayXuat').value = phieu.NgayXuat;
                         document.getElementById('MaCH').value = phieu.MaCH;
+                        
+                        // Hiển thị thông tin chỉ đọc
+                        document.getElementById('readonlyInfo').style.display = 'block';
+                        document.getElementById('infoNguoiLap').innerText = phieu.TenTK || 'N/A';
+                        document.getElementById('infoTrangThai').innerText = phieu.TinhTrang_PX;
                         
                         // Hiển thị chi tiết sản phẩm
                         let html = '';
