@@ -353,7 +353,7 @@ function getTrangThaiDisplay($tinhTrang) {
                             <td><?php echo date('d/m/Y', strtotime($phieu['NgayXuat'])); ?></td>
                             <td><?php echo htmlspecialchars($phieu['TenCH'] ?? 'N/A'); ?></td>
                             <td><?php echo htmlspecialchars($phieu['TenTK'] ?? 'N/A'); ?></td>
-                            <td><?php echo getTrangThaiDisplay($phieu['TinhTrang_PX']); ?></td>
+                            <td><?php echo htmlspecialchars($phieu['TinhTrang_PX']); ?></td>
                             <td class="actions-column">
                                 <?php 
                                 $canEdit = ($phieu['TinhTrang_PX'] == 'Đang xử lý') && 
@@ -441,7 +441,7 @@ function getTrangThaiDisplay($tinhTrang) {
                 <input type="hidden" name="MaPX" id="statusMaPX">
                 <select name="TinhTrang" id="statusTinhTrang" required>
                     <option value="">Chọn Trạng Thái</option>
-                    <option value="Đang xử lý">Chờ duyệt</option>
+                    <option value="Đang xử lý">Đang xử lý</option>
                     <option value="Bị từ chối">Bị từ chối</option>
                     <option value="Đã duyệt">Đã duyệt</option>
                     <option value="Hoàn thành">Hoàn thành</option>
@@ -549,7 +549,7 @@ function getTrangThaiDisplay($tinhTrang) {
                                 <p><strong>Ngày xuất:</strong> ${new Date(phieu.NgayXuat).toLocaleDateString('vi-VN')}</p>
                                 <p><strong>Cửa hàng:</strong> ${phieu.TenCH || 'N/A'}</p>
                                 <p><strong>Người lập:</strong> ${phieu.TenTK || 'N/A'}</p>
-                                <p><strong>Trạng thái:</strong> ${getTrangThaiDisplay(phieu.TinhTrang_PX)}</p>
+                                <p><strong>Trạng thái:</strong> ${phieu.TinhTrang_PX}</p>
                                 <h3>Chi tiết sản phẩm:</h3>
                                 <table style="width: 100%; border-collapse: collapse; margin-top: 10px;">
                                     <thead>
