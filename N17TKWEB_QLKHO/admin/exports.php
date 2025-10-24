@@ -85,8 +85,17 @@ if ($_POST['action'] ?? '') {
             // Thêm chi tiết phiếu xuất
             if (!empty($_POST['products'])) {
                 $products = json_decode($_POST['products'], true);
+                
+                // Lấy mã CTPX lớn nhất hiện có
+                $stmt = $pdo->query("SELECT MaCTPX FROM CHITIETPHIEUXUAT ORDER BY MaCTPX DESC LIMIT 1");
+                $lastCTPX = $stmt->fetchColumn();
+                $nextNumber = 1;
+                if ($lastCTPX) {
+                    $nextNumber = intval(substr($lastCTPX, 4)) + 1;
+                }
+                
                 foreach ($products as $index => $product) {
-                    $maCTPX = 'CTPX' . str_pad($index + 1, 3, '0', STR_PAD_LEFT);
+                    $maCTPX = 'CTPX' . str_pad($nextNumber + $index, 3, '0', STR_PAD_LEFT);
                     $stmt = $pdo->prepare("INSERT INTO CHITIETPHIEUXUAT (MaCTPX, MaPX, MaSP, SLX) VALUES (?, ?, ?, ?)");
                     $stmt->execute([$maCTPX, $maPX, $product['MaSP'], $product['SLX']]);
                 }
@@ -130,8 +139,17 @@ if ($_POST['action'] ?? '') {
             
             if (!empty($_POST['products'])) {
                 $products = json_decode($_POST['products'], true);
+                
+                // Lấy mã CTPX lớn nhất hiện có
+                $stmt = $pdo->query("SELECT MaCTPX FROM CHITIETPHIEUXUAT ORDER BY MaCTPX DESC LIMIT 1");
+                $lastCTPX = $stmt->fetchColumn();
+                $nextNumber = 1;
+                if ($lastCTPX) {
+                    $nextNumber = intval(substr($lastCTPX, 4)) + 1;
+                }
+                
                 foreach ($products as $index => $product) {
-                    $maCTPX = 'CTPX' . str_pad($index + 1, 3, '0', STR_PAD_LEFT);
+                    $maCTPX = 'CTPX' . str_pad($nextNumber + $index, 3, '0', STR_PAD_LEFT);
                     $stmt = $pdo->prepare("INSERT INTO CHITIETPHIEUXUAT (MaCTPX, MaPX, MaSP, SLX) VALUES (?, ?, ?, ?)");
                     $stmt->execute([$maCTPX, $maPX, $product['MaSP'], $product['SLX']]);
                 }
