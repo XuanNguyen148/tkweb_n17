@@ -164,16 +164,17 @@ if ($_POST['action'] ?? '') {
             }
             
         } elseif ($action == 'delete') {
-            // Xóa phiếu xuất (chỉ được xóa khi trạng thái "Đang xử lý")
-            $maPX = $_POST['MaPX'];
+            // Xóa phiếu xuất (không cho xóa phiếu Đã duyệt/Bị từ chối)
+            $maPX = $_POST['MaPX'] ?? '';
             
             // Kiểm tra trạng thái
             $stmt = $pdo->prepare("SELECT TinhTrang_PX FROM PHIEUXUAT WHERE MaPX = ?");
             $stmt->execute([$maPX]);
             $tinhTrang = $stmt->fetchColumn();
             
-            if ($tinhTrang != 'Đang xử lý') {
-                header("Location: exports.php?error=Phiếu đã được xử lí không thể xóa");
+            // Không cho xóa phiếu "Đã duyệt" hoặc "Bị từ chối"
+            if ($tinhTrang == 'Đã duyệt' || $tinhTrang == 'Bị từ chối') {
+                header("Location: exports.php?error=Phiếu đã duyệt/bị từ chối không thể xóa");
                 exit();
             }
             
