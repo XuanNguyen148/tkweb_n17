@@ -10,6 +10,11 @@ if (!isset($_SESSION['user_id'])) {
 
 $userRole = $_SESSION['role'] ?? 'Nhân viên';
 
+// Lấy flash message (nếu có) và xóa khỏi session
+$flash = $_SESSION['flash'] ?? null;
+if (isset($_SESSION['flash'])) {
+    unset($_SESSION['flash']);
+}
 
 // ============================
 //  XỬ LÝ AJAX: LẤY TỒN KHO
@@ -50,43 +55,76 @@ if (isset($_GET['action']) && $_GET['action'] == 'get_stock') {
     exit;
 }
 
+// ============================
+//  LẤY THÔNG TIN SẢN PHẨM ĐỂ SỬA
+// ============================
+$editProduct = null;
+if (isset($_GET['edit'])) {
+    $maSP = $_GET['edit'];
+    $stmt = $pdo->prepare("SELECT * FROM SANPHAM WHERE MaSP = ?");
+    $stmt->execute([$maSP]);
+    $editProduct = $stmt->fetch(PDO::FETCH_ASSOC);
+}
 
 // ============================
 //  XỬ LÝ THÊM / SỬA / XÓA
 // ============================
 if ($_POST['action'] ?? '') {
     $action = $_POST['action'];
-    if ($action == 'add' || $action == 'edit') {
-        $maSP = $_POST['MaSP'] ?? '';
-        $tenSP = $_POST['TenSP'];
-        $theLoai = $_POST['TheLoai'];
-        $mauSP = $_POST['MauSP'];
-        $tinhTrang = $_POST['TinhTrang'];
-        $sltk = $_POST['SLTK'];
-        $giaBan = $_POST['GiaBan'];
+    try {
+        if ($action == 'add' || $action == 'edit') {
+            $maSP = $_POST['MaSP'] ?? '';
+            $tenSP = $_POST['TenSP'];
+            $theLoai = $_POST['TheLoai'];
+            $mauSP = $_POST['MauSP'];
+            $tinhTrang = $_POST['TinhTrang'];
+            $sltk = $_POST['SLTK'];
+            $giaBan = $_POST['GiaBan'];
 
-        if ($action == 'add') {
-            $stmt = $pdo->prepare("INSERT INTO SANPHAM (MaSP, TenSP, TheLoai, MauSP, TinhTrang, SLTK, GiaBan) VALUES (?, ?, ?, ?, ?, ?, ?)");
-            $stmt->execute([$maSP, $tenSP, $theLoai, $mauSP, $tinhTrang, $sltk, $giaBan]);
-        } else {
-            $stmt = $pdo->prepare("UPDATE SANPHAM SET TenSP=?, TheLoai=?, MauSP=?, TinhTrang=?, SLTK=?, GiaBan=? WHERE MaSP=?");
-            $stmt->execute([$tenSP, $theLoai, $mauSP, $tinhTrang, $sltk, $giaBan, $maSP]);
+            if ($action == 'add') {
+                $stmt = $pdo->prepare("INSERT INTO SANPHAM (MaSP, TenSP, TheLoai, MauSP, TinhTrang, SLTK, GiaBan) VALUES (?, ?, ?, ?, ?, ?, ?)");
+                $stmt->execute([$maSP, $tenSP, $theLoai, $mauSP, $tinhTrang, $sltk, $giaBan]);
+                $_SESSION['flash'] = ['type' => 'success', 'message' => 'Thêm sản phẩm thành công!'];
+            } else {
+                $stmt = $pdo->prepare("UPDATE SANPHAM SET TenSP=?, TheLoai=?, MauSP=?, TinhTrang=?, SLTK=?, GiaBan=? WHERE MaSP=?");
+                $stmt->execute([$tenSP, $theLoai, $mauSP, $tinhTrang, $sltk, $giaBan, $maSP]);
+                $_SESSION['flash'] = ['type' => 'success', 'message' => 'Cập nhật sản phẩm thành công!'];
+            }
+        } elseif ($action == 'delete') {
+            $maSP = $_POST['MaSP'];
+            $stmt = $pdo->prepare("DELETE FROM SANPHAM WHERE MaSP=?");
+            $stmt->execute([$maSP]);
+            $_SESSION['flash'] = ['type' => 'success', 'message' => 'Xóa sản phẩm thành công!'];
         }
-    } elseif ($action == 'delete') {
-        $maSP = $_POST['MaSP'];
-        $stmt = $pdo->prepare("DELETE FROM SANPHAM WHERE MaSP=?");
-        $stmt->execute([$maSP]);
+    } catch (Exception $e) {
+        $_SESSION['flash'] = ['type' => 'error', 'message' => 'Lỗi khi xử lý: ' . $e->getMessage()];
     }
+
     header("Location: products.php"); // Reload trang
     exit();
 }
-
 
 // ============================
 //  LẤY DANH SÁCH SẢN PHẨM
 // ============================
 $search = $_GET['search'] ?? '';
-$where = $search ? "WHERE TenSP LIKE '%$search%' OR MaSP LIKE '%$search%'" : '';
+$where = '';
+$searchMessage = '';
+
+if ($search) {
+    $where = "WHERE TenSP LIKE '%$search%' OR MaSP LIKE '%$search%'";
+    
+    // Kiểm tra xem có sản phẩm nào khớp không
+    $countStmt = $pdo->query("SELECT COUNT(*) as total FROM SANPHAM $where");
+    $totalResults = $countStmt->fetch(PDO::FETCH_ASSOC)['total'];
+    
+    if ($totalResults == 0) {
+        $searchMessage = "Không tìm thấy sản phẩm nào với từ khóa: '$search'";
+    } else {
+        $searchMessage = "Tìm thấy $totalResults sản phẩm với từ khóa: '$search'";
+    }
+}
+
 $stmt = $pdo->query("SELECT * FROM SANPHAM $where ORDER BY MaSP");
 $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
@@ -121,61 +159,90 @@ $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
         <button class="logout-btn" onclick="location.href='../logout.php'">Đăng Xuất</button>
     </header>
 
-    <div class="container">
+        <div class="container">
         <h1 style="text-align: center; margin-bottom: 20px; color: #d4af37;">Quản Lý Sản Phẩm</h1>
         
         <!-- Thanh tìm kiếm -->
         <form method="GET" class="search-form" style="display: inline;">
-            <input type="text" class="search-box" placeholder="Tìm kiếm sản phẩm..." name="search" value="<?php echo htmlspecialchars($search); ?>">
+            <input type="text" class="search-box" placeholder="Tìm kiếm..." name="search" value="<?php echo htmlspecialchars($search); ?>">
             <button type="submit" class="btn btn-search">Tìm</button>
-        </form>
-        
-        <!-- Nút thêm -->
-        <button class="btn btn-add" onclick="openModal('addModal')">Thêm Sản Phẩm</button>
+            </form>
+            <button class="btn btn-add" onclick="openModal('addModal')">Thêm Sản Phẩm</button>
 
-        <div class="table-container">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Mã SP</th>
-                        <th>Tên SP</th>
-                        <th>Thể Loại</th>
-                        <th>Màu SP</th>
-                        <th>Tình Trạng</th>
-                        <th>Tồn Kho</th>
-                        <th>Giá Bán</th>
-                        <th class="actions-column">Hành Động</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php foreach ($products as $product): ?>
+        <!-- Thông báo kết quả tìm kiếm -->
+        <?php if ($searchMessage): ?>
+            <div style="margin: 15px 0; padding: 12px; background: <?php echo strpos($searchMessage, 'Không tìm thấy') !== false ? '#ffebee' : '#e8f5e8'; ?>; 
+                        border: 1px solid <?php echo strpos($searchMessage, 'Không tìm thấy') !== false ? '#f44336' : '#4caf50'; ?>; 
+                        border-radius: 8px; color: <?php echo strpos($searchMessage, 'Không tìm thấy') !== false ? '#c62828' : '#2e7d32'; ?>;">
+                <?php echo htmlspecialchars($searchMessage); ?>
+                <?php if ($search && strpos($searchMessage, 'Không tìm thấy') !== false): ?>
+                    <br><small>Gợi ý: Thử tìm kiếm với từ khóa khác hoặc kiểm tra chính tả</small>
+                <?php endif; ?>
+            </div>
+        <?php endif; ?>
+
+        <!-- Flash message sau khi thêm/sửa/xóa -->
+        <?php if ($flash): ?>
+            <div id="flashMessage" style="margin: 15px 0; padding: 12px; background: <?php echo ($flash['type'] ?? '') === 'error' ? '#ffebee' : '#e8f5e8'; ?>; 
+                        border: 1px solid <?php echo ($flash['type'] ?? '') === 'error' ? '#f44336' : '#4caf50'; ?>; 
+                        border-radius: 8px; color: <?php echo ($flash['type'] ?? '') === 'error' ? '#c62828' : '#2e7d32'; ?>; transition: opacity 0.4s ease;">
+                <?php echo htmlspecialchars($flash['message']); ?>
+            </div>
+        <?php endif; ?>
+
+        <!-- Hiển thị thông báo khi không có sản phẩm -->
+        <?php if (empty($products) && !$search): ?>
+            <div style="text-align: center; padding: 40px; color: #666;">
+                <p style="font-size: 18px; margin-bottom: 10px;">Chưa có sản phẩm nào trong hệ thống</p>
+                <button class="btn btn-add" onclick="openModal('addModal')">Thêm Sản Phẩm Đầu Tiên</button>
+            </div>
+        <?php else: ?>
+            <div class="table-container">
+                <!-- Bảng sản phẩm -->
+                <table>
+                    <thead>
                         <tr>
-                            <td><?php echo htmlspecialchars($product['MaSP']); ?></td>
-                            <td><?php echo htmlspecialchars($product['TenSP']); ?></td>
-                            <td><?php echo htmlspecialchars($product['TheLoai']); ?></td>
-                            <td><?php echo htmlspecialchars($product['MauSP']); ?></td>
-                            <td><?php echo htmlspecialchars($product['TinhTrang']); ?></td>
-                            <td><?php echo $product['SLTK']; ?></td>
-                            <td><?php echo number_format($product['GiaBan'], 0, ',', '.'); ?> VNĐ</td>
-                            <td class="actions-column">
-                                <button class="btn btn-edit" onclick="editProduct('<?php echo $product['MaSP']; ?>')">Sửa</button>
-                                <button class="btn btn-delete" onclick="deleteProduct('<?php echo $product['MaSP']; ?>')">Xóa</button>
-                                <button class="btn btn-status" onclick="viewStock('<?php echo $product['MaSP']; ?>')">Xem Tồn Kho</button>
-                            </td>
+                            <th>Mã SP</th>
+                            <th>Tên SP</th>
+                            <th>Thể Loại</th>
+                            <th>Màu SP</th>
+                            <th>Tình Trạng</th>
+                            <th>Tồn Kho</th>
+                            <th>Giá Bán</th>
+                            <th class="actions-column">Hành Động</th>
                         </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
-        </div>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($products as $product): ?>
+                            <tr>
+                                <td><?php echo htmlspecialchars($product['MaSP']); ?></td>
+                                <td><?php echo htmlspecialchars($product['TenSP']); ?></td>
+                                <td><?php echo htmlspecialchars($product['TheLoai']); ?></td>
+                                <td><?php echo htmlspecialchars($product['MauSP']); ?></td>
+                                <td><?php echo htmlspecialchars($product['TinhTrang']); ?></td>
+                                <td><?php echo $product['SLTK']; ?></td>
+                                <td><?php echo number_format($product['GiaBan'], 0, ',', '.'); ?> VNĐ</td>
+                                <td class="actions-column">
+                                    <button class="btn btn-edit" onclick="editProduct('<?php echo $product['MaSP']; ?>')">Sửa</button>
+                                        <button class="btn btn-delete" onclick="deleteProduct('<?php echo $product['MaSP']; ?>')">Xóa</button>
+                                <button class="btn btn-status" onclick="viewStock('<?php echo $product['MaSP']; ?>')">Xem Tồn Kho</button>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        <?php endif; ?>
+        
     </div>
 
-    <!-- Modal Thêm/Sửa -->
+    <!-- Modal Thêm -->
     <div id="addModal" class="modal">
         <div class="modal-content">
             <span class="close" onclick="closeModal('addModal')">&times;</span>
-            <h2 id="modalTitle">Thêm Sản Phẩm</h2>
+            <h2>Thêm Sản Phẩm</h2>
             <form method="POST">
-                <input type="hidden" name="action" id="modalAction" value="add">
+                <input type="hidden" name="action" value="add">
                 <input type="text" name="MaSP" placeholder="Mã SP" required>
                 <input type="text" name="TenSP" placeholder="Tên SP" required>
                 <select name="TheLoai" required>
@@ -197,6 +264,37 @@ $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
             </form>
         </div>
     </div>
+
+    <!-- Modal Sửa -->
+    <?php if ($editProduct): ?>
+    <div id="editModal" class="modal" style="display: block;">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('editModal')">&times;</span>
+            <h2>Sửa Sản Phẩm</h2>
+            <form method="POST">
+                <input type="hidden" name="action" value="edit">
+                <input type="text" name="MaSP" value="<?php echo htmlspecialchars($editProduct['MaSP']); ?>" readonly>
+                <input type="text" name="TenSP" value="<?php echo htmlspecialchars($editProduct['TenSP']); ?>" required>
+                <select name="TheLoai" required>
+                    <option value="">Chọn Thể Loại</option>
+                    <option value="Vòng tay" <?php echo $editProduct['TheLoai'] == 'Vòng tay' ? 'selected' : ''; ?>>Vòng tay</option>
+                    <option value="Vòng cổ" <?php echo $editProduct['TheLoai'] == 'Vòng cổ' ? 'selected' : ''; ?>>Vòng cổ</option>
+                    <option value="Khuyên tai" <?php echo $editProduct['TheLoai'] == 'Khuyên tai' ? 'selected' : ''; ?>>Khuyên tai</option>
+                    <option value="Nhẫn" <?php echo $editProduct['TheLoai'] == 'Nhẫn' ? 'selected' : ''; ?>>Nhẫn</option>
+                </select>
+                <input type="text" name="MauSP" value="<?php echo htmlspecialchars($editProduct['MauSP']); ?>">
+                <select name="TinhTrang" required>
+                    <option value="Còn hàng" <?php echo $editProduct['TinhTrang'] == 'Còn hàng' ? 'selected' : ''; ?>>Còn hàng</option>
+                    <option value="Hết hàng" <?php echo $editProduct['TinhTrang'] == 'Hết hàng' ? 'selected' : ''; ?>>Hết hàng</option>
+                    <option value="Ngừng kinh doanh" <?php echo $editProduct['TinhTrang'] == 'Ngừng kinh doanh' ? 'selected' : ''; ?>>Ngừng kinh doanh</option>
+                </select>
+                <input type="number" name="SLTK" value="<?php echo $editProduct['SLTK']; ?>" min="0" required>
+                <input type="number" name="GiaBan" value="<?php echo $editProduct['GiaBan']; ?>" step="0.01" min="0" required>
+                <button type="submit" class="btn btn-edit">Cập nhật</button>
+            </form>
+        </div>
+    </div>
+    <?php endif; ?>
 
     <!-- Modal Xem Tồn Kho -->
     <div id="stockModal" class="modal">
@@ -248,6 +346,19 @@ $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     openModal('stockModal');
                 });
         }
+
+        // Tự ẩn flash message sau 4s (nếu có)
+        document.addEventListener('DOMContentLoaded', function() {
+            const flash = document.getElementById('flashMessage');
+            if (!flash) return;
+            // Hiện opacity mặc định (1) -> chuyển xuống 0 rồi display none
+            setTimeout(function() {
+                flash.style.opacity = '0';
+                setTimeout(function() {
+                    if (flash.parentNode) flash.parentNode.removeChild(flash);
+                }, 500); // khớp với transition
+            }, 4000); // 4 giây trước khi ẩn
+        });
     </script>
 </body>
 </html>

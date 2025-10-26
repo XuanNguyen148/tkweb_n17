@@ -17,8 +17,16 @@ $mutableStatuses = ['Đang xử lý', 'Đã duyệt'];
 function generateMaPN($pdo) {
     $stmt = $pdo->query("SELECT MAX(CAST(SUBSTRING(MaPN, 3) AS UNSIGNED)) as max_id FROM PHIEUNHAP");
     $result = $stmt->fetch();
-    $next_id = $result['max_id'] + 1;
+    $next_id = ($result['max_id'] ?? 0) + 1;
     return 'PN' . str_pad($next_id, 5, '0', STR_PAD_LEFT);
+}
+
+// Hàm tạo mã chi tiết phiếu nhập tự động
+function generateMaCTPN($pdo) {
+    $stmt = $pdo->query("SELECT MAX(CAST(SUBSTRING(MaCTPN, 5) AS UNSIGNED)) as max_id FROM CHITIETPHIEUNHAP");
+    $result = $stmt->fetch();
+    $next_id = ($result['max_id'] ?? 0) + 1;
+    return 'CTPN' . str_pad($next_id, 3, '0', STR_PAD_LEFT);
 }
 
 // ============================
@@ -35,49 +43,142 @@ if (isset($_POST['action']) && !empty($_POST['action'])) {
         $slns = $_POST['SLN'] ?? [];
 
         if ($action == 'add') {
-            $maPN = generateMaPN($pdo); // Tạo mã phiếu nhập mới
-            $stmt = $pdo->prepare("INSERT INTO PHIEUNHAP (MaPN, NgayNhap, MaTK, TinhTrang_PN) VALUES (?, ?, ?, ?)");
-            $stmt->execute([$maPN, $ngayNhap, $maTK, $tinhTrang]);
+            try {
+                $pdo->beginTransaction();
 
-            // Thêm chi tiết sản phẩm
-            foreach ($maSPs as $index => $maSP) {
-                if (!empty($maSP) && !empty($slns[$index])) {
-                    $stmt = $pdo->prepare("INSERT INTO CHITIETPHIEUNHAP (MaPN, MaSP, SLN) VALUES (?, ?, ?)");
-                    $stmt->execute([$maPN, $maSP, $slns[$index]]);
+                // Thêm phiếu nhập
+                $maPN = generateMaPN($pdo);
+                $stmt = $pdo->prepare("INSERT INTO PHIEUNHAP (MaPN, NgayNhap, MaTK, TinhTrang_PN) VALUES (?, ?, ?, ?)");
+                $stmt->execute([$maPN, $ngayNhap, $maTK, $tinhTrang]);
+
+                // Thêm chi tiết sản phẩm
+                foreach ($maSPs as $index => $maSP) {
+                    if (!empty($maSP) && !empty($slns[$index])) {
+                        // Kiểm tra trùng sản phẩm trong cùng phiếu nhập
+                        $stmt = $pdo->prepare("SELECT COUNT(*) FROM CHITIETPHIEUNHAP WHERE MaPN = ? AND MaSP = ?");
+                        $stmt->execute([$maPN, $maSP]);
+                        if ($stmt->fetchColumn() > 0) {
+                            throw new Exception("Sản phẩm $maSP đã tồn tại trong phiếu nhập $maPN");
+                        }
+
+                        // Sinh MaCTPN duy nhất
+                        $maCTPN = generateMaCTPN($pdo);
+
+                        // Thêm chi tiết phiếu nhập
+                        $stmt = $pdo->prepare("INSERT INTO CHITIETPHIEUNHAP (MaCTPN, MaPN, MaSP, SLN) VALUES (?, ?, ?, ?)");
+                        $stmt->execute([$maCTPN, $maPN, $maSP, $slns[$index]]);
+
+                        // Cập nhật số lượng tồn kho
+                        $stmt = $pdo->prepare("UPDATE SANPHAM SET SLTK = SLTK + ?, TinhTrang = CASE WHEN SLTK + ? > 0 THEN 'Còn hàng' ELSE 'Hết hàng' END WHERE MaSP = ?");
+                        $stmt->execute([$slns[$index], $slns[$index], $maSP]);
+                    }
                 }
+
+                $pdo->commit();
+                header("Location: imports.php?success=Thêm phiếu nhập thành công");
+            } catch (Exception $e) {
+                $pdo->rollBack();
+                header("Location: imports.php?error=" . urlencode($e->getMessage()));
             }
         } else {
-            $stmt = $pdo->prepare("UPDATE PHIEUNHAP SET NgayNhap=?, MaTK=?, TinhTrang_PN=? WHERE MaPN=?");
-            $stmt->execute([$ngayNhap, $maTK, $tinhTrang, $maPN]);
+            try {
+                $pdo->beginTransaction();
+                $stmt = $pdo->prepare("UPDATE PHIEUNHAP SET NgayNhap=?, MaTK=?, TinhTrang_PN=? WHERE MaPN=?");
+                $stmt->execute([$ngayNhap, $maTK, $tinhTrang, $maPN]);
+                $pdo->commit();
+                header("Location: imports.php?success=Sửa phiếu nhập thành công");
+            } catch (Exception $e) {
+                $pdo->rollBack();
+                header("Location: imports.php?error=" . urlencode($e->getMessage()));
+            }
         }
     } elseif ($action == 'delete') {
         $maPN = $_POST['MaPN'] ?? '';
-        $stmt = $pdo->prepare("DELETE FROM PHIEUNHAP WHERE MaPN=?");
-        $stmt->execute([$maPN]);
-    }
-    elseif ($action == 'edit_detail') {
+        try {
+            $pdo->beginTransaction();
+
+            // Lấy danh sách chi tiết phiếu nhập để cập nhật tồn kho
+            $stmt = $pdo->prepare("SELECT MaSP, SLN FROM CHITIETPHIEUNHAP WHERE MaPN = ?");
+            $stmt->execute([$maPN]);
+            $details = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Trừ số lượng tồn kho trong SANPHAM
+            foreach ($details as $detail) {
+                $stmt = $pdo->prepare("UPDATE SANPHAM SET SLTK = SLTK - ?, TinhTrang = CASE WHEN SLTK - ? > 0 THEN 'Còn hàng' ELSE 'Hết hàng' END WHERE MaSP = ?");
+                $stmt->execute([$detail['SLN'], $detail['SLN'], $detail['MaSP']]);
+            }
+
+            // Xóa chi tiết phiếu nhập
+            $stmt = $pdo->prepare("DELETE FROM CHITIETPHIEUNHAP WHERE MaPN = ?");
+            $stmt->execute([$maPN]);
+
+            // Xóa phiếu nhập
+            $stmt = $pdo->prepare("DELETE FROM PHIEUNHAP WHERE MaPN = ?");
+            $stmt->execute([$maPN]);
+
+            $pdo->commit();
+            header("Location: imports.php?success=Xóa phiếu nhập thành công");
+        } catch (Exception $e) {
+            $pdo->rollBack();
+            header("Location: imports.php?error=" . urlencode($e->getMessage()));
+        }
+    } elseif ($action == 'edit_detail') {
         $maPN = $_POST['MaPN'] ?? '';
         $maCTPNs = $_POST['MaCTPN'] ?? [];
         $maSPs = $_POST['MaSP'] ?? [];
-        $slns = $_POST['SLN'] ?? '';
-        
+        $slns = $_POST['SLN'] ?? [];
+
         // Kiểm tra trạng thái phiếu nhập - chỉ cho sửa khi "Đang xử lý"
         $stmt = $pdo->prepare("SELECT TinhTrang_PN FROM PHIEUNHAP WHERE MaPN = ?");
         $stmt->execute([$maPN]);
         $import = $stmt->fetch();
-        
+
         if ($import && $import['TinhTrang_PN'] === 'Đang xử lý') {
-            foreach ($maCTPNs as $index => $maCTPN) {
-                $maSP = $maSPs[$index] ?? '';
-                $sln = $slns[$index] ?? '';
-                if (!empty($maSP) && !empty($sln)) {
-                    $stmt = $pdo->prepare("UPDATE CHITIETPHIEUNHAP SET MaSP = ?, SLN = ? WHERE MaCTPN = ? AND MaPN = ?");
-                    $stmt->execute([$maSP, $sln, $maCTPN, $maPN]);
+            try {
+                $pdo->beginTransaction();
+                foreach ($maCTPNs as $index => $maCTPN) {
+                    $maSP = $maSPs[$index] ?? '';
+                    $sln = $slns[$index] ?? '';
+                    if (!empty($maSP) && !empty($sln)) {
+                        // Kiểm tra xem MaSP mới có trùng với bản ghi khác trong cùng MaPN không
+                        $stmt = $pdo->prepare("SELECT COUNT(*) FROM CHITIETPHIEUNHAP WHERE MaPN = ? AND MaSP = ? AND MaCTPN != ?");
+                        $stmt->execute([$maPN, $maSP, $maCTPN]);
+                        if ($stmt->fetchColumn() > 0) {
+                            throw new Exception("Sản phẩm $maSP đã tồn tại trong phiếu nhập $maPN");
+                        }
+
+                        // Cập nhật số lượng cũ và mới trong SANPHAM
+                        $stmt = $pdo->prepare("SELECT MaSP, SLN FROM CHITIETPHIEUNHAP WHERE MaCTPN = ? AND MaPN = ?");
+                        $stmt->execute([$maCTPN, $maPN]);
+                        $oldDetail = $stmt->fetch();
+                        if ($oldDetail) {
+                            $oldMaSP = $oldDetail['MaSP'];
+                            $oldSLN = $oldDetail['SLN'];
+
+                            // Trừ số lượng cũ khỏi SLTK
+                            $stmt = $pdo->prepare("UPDATE SANPHAM SET SLTK = SLTK - ?, TinhTrang = CASE WHEN SLTK - ? > 0 THEN 'Còn hàng' ELSE 'Hết hàng' END WHERE MaSP = ?");
+                            $stmt->execute([$oldSLN, $oldSLN, $oldMaSP]);
+
+                            // Cập nhật chi tiết phiếu nhập
+                            $stmt = $pdo->prepare("UPDATE CHITIETPHIEUNHAP SET MaSP = ?, SLN = ? WHERE MaCTPN = ? AND MaPN = ?");
+                            $stmt->execute([$maSP, $sln, $maCTPN, $maPN]);
+
+                            // Cộng số lượng mới vào SLTK
+                            $stmt = $pdo->prepare("UPDATE SANPHAM SET SLTK = SLTK + ?, TinhTrang = CASE WHEN SLTK + ? > 0 THEN 'Còn hàng' ELSE 'Hết hàng' END WHERE MaSP = ?");
+                            $stmt->execute([$sln, $sln, $maSP]);
+                        }
+                    }
                 }
+                $pdo->commit();
+                header("Location: imports.php?success=Sửa chi tiết phiếu nhập thành công");
+            } catch (Exception $e) {
+                $pdo->rollBack();
+                header("Location: imports.php?error=" . urlencode($e->getMessage()));
             }
+        } else {
+            header("Location: imports.php?error=Chỉ sửa được khi trạng thái là Đang xử lý");
         }
-    }
-    elseif ($action == 'adjustment') {
+    } elseif ($action == 'adjustment') {
         // Xử lý nhập SLN_MOI và cộng vào SLTK
         header('Content-Type: application/json');
         $maPN = $_POST['MaPN'] ?? '';
@@ -96,7 +197,7 @@ if (isset($_POST['action']) && !empty($_POST['action'])) {
                     $stmt = $pdo->prepare("UPDATE CHITIETPHIEUNHAP SET SLN_MOI = ? WHERE MaCTPN = ? AND MaPN = ?");
                     $stmt->execute([$sln_moi, $maCTPN, $maPN]);
 
-                    // Cộng SLN_MOI vào SLTK (không phải SLN ban đầu)
+                    // Cộng SLN_MOI vào SLTK
                     $stmt_sp = $pdo->prepare("SELECT MaSP FROM CHITIETPHIEUNHAP WHERE MaCTPN = ?");
                     $stmt_sp->execute([$maCTPN]);
                     $sp = $stmt_sp->fetch();
@@ -120,31 +221,39 @@ if (isset($_POST['action']) && !empty($_POST['action'])) {
             echo json_encode(['success' => false, 'error' => 'Không hợp lệ']);
         }
         exit();
-    }
-    elseif ($action == 'change_status') {
+    } elseif ($action == 'change_status') {
         $maPN = $_POST['MaPN'] ?? '';
         $newStatus = $_POST['TinhTrang_PN'] ?? '';
-        
+
         // Danh sách trạng thái hợp lệ
         $validStatuses = ['Đang xử lý', 'Đã duyệt', 'Bị từ chối', 'Hoàn thành', 'Có thay đổi'];
-        
+
         if (in_array($newStatus, $validStatuses)) {
-            $stmt = $pdo->prepare("UPDATE PHIEUNHAP SET TinhTrang_PN = ? WHERE MaPN = ?");
-            $stmt->execute([$newStatus, $maPN]);
+            try {
+                $pdo->beginTransaction();
+                $stmt = $pdo->prepare("UPDATE PHIEUNHAP SET TinhTrang_PN = ? WHERE MaPN = ?");
+                $stmt->execute([$newStatus, $maPN]);
+                $pdo->commit();
+                header("Location: imports.php?success=Đổi trạng thái thành công");
+            } catch (Exception $e) {
+                $pdo->rollBack();
+                header("Location: imports.php?error=" . urlencode($e->getMessage()));
+            }
+        } else {
+            header("Location: imports.php?error=Trạng thái không hợp lệ");
         }
     }
-    header("Location: imports.php");
     exit();
 }
 
 // Xử lý các action GET riêng biệt
 if (isset($_GET['action'])) {
     $action = $_GET['action'];
-    
+
     if ($action === 'get_import_details') {
         header('Content-Type: application/json');
         $maPN = $_GET['MaPN'] ?? '';
-        
+
         // Lấy thông tin phiếu nhập
         $stmt = $pdo->prepare("
             SELECT p.MaPN, p.NgayNhap, p.TinhTrang_PN, t.MaTK, t.TenTK
@@ -154,7 +263,7 @@ if (isset($_GET['action'])) {
         ");
         $stmt->execute([$maPN]);
         $importInfo = $stmt->fetch(PDO::FETCH_ASSOC);
-        
+
         // Lấy chi tiết sản phẩm (thêm SLN_MOI)
         $stmt = $pdo->prepare("
             SELECT ct.MaCTPN, ct.MaSP, ct.SLN, ct.SLN_MOI, sp.TenSP
@@ -164,41 +273,41 @@ if (isset($_GET['action'])) {
         ");
         $stmt->execute([$maPN]);
         $details = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        
+
         echo json_encode([
             'info' => $importInfo,
             'details' => $details
         ]);
         exit();
     }
-    
+
     if ($action === 'change_status_ajax') {
         header('Content-Type: application/json');
         $maPN = $_POST['MaPN'] ?? '';
         $newStatus = $_POST['TinhTrang_PN'] ?? '';
-        
+
         // Danh sách trạng thái hợp lệ
         $validStatuses = ['Đang xử lý', 'Đã duyệt', 'Bị từ chối', 'Hoàn thành', 'Có thay đổi'];
-        
+
         $stmt = $pdo->prepare("SELECT TinhTrang_PN FROM PHIEUNHAP WHERE MaPN = ?");
         $stmt->execute([$maPN]);
         $currentStatus = $stmt->fetchColumn();
-        
+
         // Nếu trạng thái hiện tại là trạng thái cuối cùng, không cho phép đổi
         if (in_array($currentStatus, $finalStatuses)) {
             echo json_encode(['success' => false, 'error' => 'Phiếu nhập này đã được khóa và không thể thay đổi trạng thái']);
             exit();
         }
-        
+
         if (in_array($newStatus, $validStatuses)) {
             try {
                 $pdo->beginTransaction();
-                
+
                 // Lấy trạng thái cũ của phiếu nhập
                 $stmt = $pdo->prepare("SELECT TinhTrang_PN FROM PHIEUNHAP WHERE MaPN = ?");
                 $stmt->execute([$maPN]);
                 $oldStatus = $stmt->fetchColumn();
-                
+
                 // Cập nhật trạng thái mới cho phiếu nhập
                 $stmt = $pdo->prepare("UPDATE PHIEUNHAP SET TinhTrang_PN = ? WHERE MaPN = ?");
                 $stmt->execute([$newStatus, $maPN]);
@@ -219,10 +328,9 @@ if (isset($_GET['action'])) {
                     ");
                     $stmt->execute([$maPN]);
                 }
-                
+
                 $pdo->commit();
                 echo json_encode(['success' => true, 'newStatus' => $newStatus, 'needsAdjustment' => ($newStatus == 'Có thay đổi')]);
-                
             } catch (Exception $e) {
                 $pdo->rollBack();
                 echo json_encode(['success' => false, 'error' => $e->getMessage()]);
@@ -256,7 +364,7 @@ $stmt = $pdo->query("
     LEFT JOIN CHITIETPHIEUNHAP ct ON p.MaPN = ct.MaPN
     LEFT JOIN SANPHAM sp ON ct.MaSP = sp.MaSP
     $where 
-    ORDER BY p.NgayNhap DESC, p.MaPN, sp.TenSP
+    ORDER BY p.MaPN ASC
 ");
 $imports = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -365,6 +473,14 @@ foreach ($imports as $row) {
         <!-- Nút thêm -->
         <button class="btn btn-add" onclick="openModal('addModal')">Thêm Phiếu Nhập</button>
 
+        <!-- Hiển thị thông báo -->
+        <?php if (isset($_GET['success'])): ?>
+            <p style="color: green;"><?php echo htmlspecialchars($_GET['success']); ?></p>
+        <?php endif; ?>
+        <?php if (isset($_GET['error'])): ?>
+            <p style="color: red;"><?php echo htmlspecialchars($_GET['error']); ?></p>
+        <?php endif; ?>
+
         <div class="table-container">
             <table>
                 <thead>
@@ -383,8 +499,7 @@ foreach ($imports as $row) {
                     <?php foreach ($groupedImports as $maPN => $import): ?>
                         <?php 
                         $rowspan = max(1, count($import['details']));
-                        $first = true;
-                        $canEdit = in_array($import['info']['TinhTrang_PN'], $mutableStatuses); // Cho phép sửa khi là 'Đang xử lý' hoặc 'Đã duyệt'
+                        $canEdit = in_array($import['info']['TinhTrang_PN'], $mutableStatuses);
                         $isLocked = in_array($import['info']['TinhTrang_PN'], $finalStatuses);
                         ?>
                         <?php if (empty($import['details'])): ?>
@@ -403,7 +518,6 @@ foreach ($imports as $row) {
                                         <button class="btn btn-edit" disabled title="Chỉ sửa được khi trạng thái là 'Đang xử lý'">Sửa</button>
                                     <?php endif; ?>
                                     <button class="btn btn-delete" onclick="deleteImport('<?php echo $import['info']['MaPN']; ?>')">Xóa</button>
-                                    <!-- Vô hiệu hóa nút đổi trạng thái nếu phiếu nhập bị khóa -->
                                     <?php if ($isLocked): ?>
                                         <button class="btn btn-status" disabled title="Phiếu nhập này đã bị khóa và không thể thay đổi trạng thái">Đổi trạng thái</button>
                                     <?php else: ?>
@@ -431,7 +545,6 @@ foreach ($imports as $row) {
                                                 <button class="btn btn-edit" disabled title="Chỉ sửa được khi trạng thái là 'Đang xử lý'">Sửa</button>
                                             <?php endif; ?>
                                             <button class="btn btn-delete" onclick="deleteImport('<?php echo $import['info']['MaPN']; ?>')">Xóa</button>
-                                            <!-- Vô hiệu hóa nút đổi trạng thái nếu phiếu nhập bị khóa -->
                                             <?php if ($isLocked): ?>
                                                 <button class="btn btn-status" disabled title="Phiếu nhập này đã bị khóa và không thể thay đổi trạng thái">Đổi trạng thái</button>
                                             <?php else: ?>
@@ -456,7 +569,7 @@ foreach ($imports as $row) {
             <form method="POST" id="addImportForm">
                 <input type="hidden" name="action" value="add">
                 
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
                     <div>
                         <label>Mã Phiếu Nhập:</label>
                         <?php 
@@ -526,7 +639,7 @@ foreach ($imports as $row) {
         </div>
     </div>
 
-    <!-- Modal sửa chi tiết phiếu nhập (khôi phục như ban đầu) -->
+    <!-- Modal sửa chi tiết phiếu nhập -->
     <div id="editDetailModal" class="modal">
         <div class="modal-content">
             <span class="close" onclick="closeModal('editDetailModal')">&times;</span>
@@ -603,7 +716,7 @@ foreach ($imports as $row) {
         </div>
     </div>
 
-    <!-- Modal mới: Nhập số lượng mới khi trạng thái "Có thay đổi" -->
+    <!-- Modal nhập số lượng mới khi trạng thái "Có thay đổi" -->
     <div id="adjustmentModal" class="modal">
         <div class="modal-content">
             <span class="close" onclick="closeModal('adjustmentModal')">&times;</span>
@@ -685,15 +798,15 @@ foreach ($imports as $row) {
                             </div>
                         </form>
                     `;
-                    
-                    // Set giá trị cho các select và input
+
+                    //Set selected values for selects after innerHTML is set
+                    const selects = detailsList.querySelectorAll('select[name="MaSP[]"]');
                     details.forEach((detail, index) => {
-                        const selects = document.getElementsByName('MaSP[]');
-                        const inputs = document.getElementsByName('SLN[]');
-                        if (selects[index]) selects[index].value = detail.MaSP;
-                        if (inputs[index]) inputs[index].value = detail.SLN;
+                        if (selects[index]) {
+                            selects[index].value = detail.MaSP;
+                        }
                     });
-                    
+
                     openModal('editDetailModal');
                 })
                 .catch(error => {
@@ -736,7 +849,7 @@ foreach ($imports as $row) {
                 .then(response => response.json())
                 .then(data => {
                     if (data.success) {
-                        // Cập nhật UI (cột tình trạng giờ là td:nth-child(7) vì thêm cột mới)
+                        // Cập nhật UI
                         const rows = document.querySelectorAll('table tbody tr');
                         rows.forEach(row => {
                             const maPNCell = row.querySelector('td:first-child');
@@ -839,7 +952,7 @@ foreach ($imports as $row) {
                     if (data.success) {
                         alert('Đã lưu số lượng mới và cập nhật tồn kho thành công!');
                         closeModal('adjustmentModal');
-                        location.reload(); // Reload để cập nhật bảng
+                        location.reload();
                     } else {
                         alert('Lỗi khi lưu: ' + (data.error || 'Không xác định'));
                     }
@@ -865,13 +978,19 @@ foreach ($imports as $row) {
             }
         }
 
-        // Hàm giả định từ script.js (nếu chưa có)
         function openModal(modalId) {
             document.getElementById(modalId).style.display = 'flex';
         }
         function closeModal(modalId) {
             document.getElementById(modalId).style.display = 'none';
         }
+
+        // Tự động reload trang sau khi hiển thị success/error để tránh resubmit prompt
+        window.addEventListener('load', function() {
+            if (window.history && window.history.pushState) {
+                window.history.pushState('', null, window.location.pathname);
+            }
+        });
     </script>
 </body>
 </html>
