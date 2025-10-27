@@ -640,7 +640,7 @@ foreach ($imports as $row) {
                             <select name="MaSP[]" required style="width: 100%; padding: 8px;">
                                 <option value="">Chọn sản phẩm</option>
                                 <?php
-                                $products = $pdo->query("SELECT MaSP, TenSP FROM SANPHAM")->fetchAll();
+                                $products = $pdo->query("SELECT MaSP, TenSP FROM SANPHAM WHERE TinhTrang != 'Ngừng kinh doanh'")->fetchAll();
                                 foreach ($products as $product) {
                                     echo "<option value='{$product['MaSP']}'>{$product['TenSP']}</option>";
                                 }
@@ -800,7 +800,7 @@ foreach ($imports as $row) {
                                                 <select name="MaSP[]" required style="width: 100%; padding: 10px;">
                                                     <option value="">Chọn sản phẩm</option>
                                                     <?php
-                                                    $products = $pdo->query("SELECT MaSP, TenSP FROM SANPHAM")->fetchAll();
+                                                    $products = $pdo->query("SELECT MaSP, TenSP FROM SANPHAM WHERE TinhTrang != 'Ngừng kinh doanh'")->fetchAll();
                                                     foreach ($products as $product) {
                                                         echo "<option value='{$product['MaSP']}'>{$product['TenSP']}</option>";
                                                     }

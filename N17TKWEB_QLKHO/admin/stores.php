@@ -71,12 +71,29 @@ if ($_POST['action'] ?? '') {
             }
         } elseif ($action == 'delete') {
             $maCH = $_POST['MaCH'];
+            
+            // Kiểm tra xem cửa hàng có phiếu xuất không (bất kỳ trạng thái nào)
+            $stmt = $pdo->prepare("SELECT COUNT(*) FROM PHIEUXUAT WHERE MaCH = ?");
+            $stmt->execute([$maCH]);
+            $hasExports = $stmt->fetchColumn() > 0;
+            
+            if ($hasExports) {
+                $_SESSION['flash'] = ['type' => 'error', 'message' => 'Đã có phiếu xuất về cửa hàng này, nên bạn không thể xóa.'];
+                header("Location: stores.php");
+                exit();
+            }
+            
             $stmt = $pdo->prepare("DELETE FROM CUAHANG WHERE MaCH=?");
             $stmt->execute([$maCH]);
             $_SESSION['flash'] = ['type' => 'success', 'message' => 'Xóa cửa hàng thành công!'];
         }
     } catch (Exception $e) {
-        $_SESSION['flash'] = ['type' => 'error', 'message' => 'Lỗi khi xử lý: ' . $e->getMessage()];
+        // Kiểm tra nếu là lỗi foreign key constraint
+        if (strpos($e->getMessage(), 'foreign key constraint') !== false || strpos($e->getMessage(), '1451') !== false) {
+            $_SESSION['flash'] = ['type' => 'error', 'message' => 'Không thể xóa cửa hàng này vì đã có dữ liệu liên quan trong hệ thống.'];
+        } else {
+            $_SESSION['flash'] = ['type' => 'error', 'message' => 'Lỗi khi xử lý: ' . $e->getMessage()];
+        }
     }
 
     header("Location: stores.php"); // Reload trang

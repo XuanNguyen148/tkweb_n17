@@ -454,7 +454,7 @@ $stmtCH = $pdo->query("SELECT MaCH, TenCH FROM CUAHANG ORDER BY TenCH");
 $cuaHangs = $stmtCH->fetchAll(PDO::FETCH_ASSOC);
 
 // Lấy danh sách sản phẩm cho dropdown
-$stmtSP = $pdo->query("SELECT MaSP, TenSP, SLTK FROM SANPHAM WHERE TinhTrang = 'Còn hàng' ORDER BY TenSP");
+$stmtSP = $pdo->query("SELECT MaSP, TenSP, SLTK FROM SANPHAM WHERE TinhTrang != 'Ngừng kinh doanh' ORDER BY TenSP");
 $sanPhams = $stmtSP->fetchAll(PDO::FETCH_ASSOC);
 
 // Mapping trạng thái database sang hiển thị
@@ -1029,7 +1029,7 @@ function getTrangThaiDisplay($tinhTrang) {
                                                     <select name="MaSP[]" required style="width: 100%; padding: 10px;">
                                                         <option value="">Chọn sản phẩm</option>
                                                         <?php
-                                                        $products = $pdo->query("SELECT MaSP, TenSP FROM SANPHAM")->fetchAll();
+                                                        $products = $pdo->query("SELECT MaSP, TenSP FROM SANPHAM WHERE TinhTrang != 'Ngừng kinh doanh'")->fetchAll();
                                                         foreach ($products as $product) {
                                                             echo "<option value='{$product['MaSP']}'>{$product['TenSP']}</option>";
                                                         }

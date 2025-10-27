@@ -115,12 +115,42 @@ if ($_POST['action'] ?? '') {
             }
         } elseif ($action == 'delete') {
             $maSP = $_POST['MaSP'];
+            
+            // Kiểm tra xem sản phẩm có trong phiếu xuất không (bất kỳ trạng thái nào)
+            $stmt = $pdo->prepare("
+                SELECT COUNT(*) 
+                FROM CHITIETPHIEUXUAT ct
+                WHERE ct.MaSP = ?
+            ");
+            $stmt->execute([$maSP]);
+            $hasExports = $stmt->fetchColumn() > 0;
+            
+            // Kiểm tra xem sản phẩm có trong phiếu nhập không (bất kỳ trạng thái nào)
+            $stmt = $pdo->prepare("
+                SELECT COUNT(*) 
+                FROM CHITIETPHIEUNHAP ct
+                WHERE ct.MaSP = ?
+            ");
+            $stmt->execute([$maSP]);
+            $hasImports = $stmt->fetchColumn() > 0;
+            
+            if ($hasExports || $hasImports) {
+                $_SESSION['flash'] = ['type' => 'error', 'message' => 'Đã có phiếu xuất về sản phẩm này, nên bạn không thể xóa. Bạn có thể đổi trạng thái sản phẩm thành \'Ngừng kinh doanh\'.'];
+                header("Location: products.php");
+                exit();
+            }
+            
             $stmt = $pdo->prepare("DELETE FROM SANPHAM WHERE MaSP=?");
             $stmt->execute([$maSP]);
             $_SESSION['flash'] = ['type' => 'success', 'message' => 'Xóa sản phẩm thành công!'];
         }
     } catch (Exception $e) {
-        $_SESSION['flash'] = ['type' => 'error', 'message' => 'Lỗi khi xử lý: ' . $e->getMessage()];
+        // Kiểm tra nếu là lỗi foreign key constraint
+        if (strpos($e->getMessage(), 'foreign key constraint') !== false || strpos($e->getMessage(), '1451') !== false) {
+            $_SESSION['flash'] = ['type' => 'error', 'message' => 'Không thể xóa sản phẩm này vì đã có dữ liệu liên quan trong hệ thống. Bạn có thể đổi trạng thái sang \'Ngừng kinh doanh\'.'];
+        } else {
+            $_SESSION['flash'] = ['type' => 'error', 'message' => 'Lỗi khi xử lý: ' . $e->getMessage()];
+        }
     }
 
     header("Location: products.php"); // Reload trang
