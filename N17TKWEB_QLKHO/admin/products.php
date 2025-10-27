@@ -10,6 +10,14 @@ if (!isset($_SESSION['user_id'])) {
 
 $userRole = $_SESSION['role'] ?? 'Nhân viên';
 
+// Hàm tạo mã sản phẩm tự động
+function generateMaSP($pdo) {
+    $stmt = $pdo->query("SELECT MAX(CAST(SUBSTRING(MaSP, 3) AS UNSIGNED)) as max_id FROM SANPHAM");
+    $result = $stmt->fetch();
+    $next_id = ($result['max_id'] ?? 0) + 1;
+    return 'SP' . str_pad($next_id, 3, '0', STR_PAD_LEFT);
+}
+
 // Lấy flash message (nếu có) và xóa khỏi session
 $flash = $_SESSION['flash'] ?? null;
 if (isset($_SESSION['flash'])) {
@@ -73,19 +81,34 @@ if ($_POST['action'] ?? '') {
     $action = $_POST['action'];
     try {
         if ($action == 'add' || $action == 'edit') {
-            $maSP = $_POST['MaSP'] ?? '';
-            $tenSP = $_POST['TenSP'];
-            $theLoai = $_POST['TheLoai'];
-            $mauSP = $_POST['MauSP'];
-            $tinhTrang = $_POST['TinhTrang'];
-            $sltk = $_POST['SLTK'];
-            $giaBan = $_POST['GiaBan'];
+            $tenSP = trim($_POST['TenSP'] ?? '');
+            $theLoai = trim($_POST['TheLoai'] ?? '');
+            $mauSP = trim($_POST['MauSP'] ?? '');
+            $tinhTrang = trim($_POST['TinhTrang'] ?? '');
+            $sltk = $_POST['SLTK'] ?? '';
+            $giaBan = $_POST['GiaBan'] ?? '';
+
+            // Kiểm tra các trường bắt buộc
+            if (empty($tenSP) || empty($theLoai) || empty($mauSP) || empty($tinhTrang) || $sltk === '' || $giaBan === '') {
+                $_SESSION['flash'] = ['type' => 'error', 'message' => 'Vui lòng điền đầy đủ tất cả các trường!'];
+                header("Location: products.php");
+                exit();
+            }
+
+            // Kiểm tra số lượng tồn kho và giá bán phải là số không âm
+            if ($sltk < 0 || $giaBan < 0) {
+                $_SESSION['flash'] = ['type' => 'error', 'message' => 'Số lượng tồn kho và giá bán phải là số không âm!'];
+                header("Location: products.php");
+                exit();
+            }
 
             if ($action == 'add') {
+                $maSP = generateMaSP($pdo);
                 $stmt = $pdo->prepare("INSERT INTO SANPHAM (MaSP, TenSP, TheLoai, MauSP, TinhTrang, SLTK, GiaBan) VALUES (?, ?, ?, ?, ?, ?, ?)");
                 $stmt->execute([$maSP, $tenSP, $theLoai, $mauSP, $tinhTrang, $sltk, $giaBan]);
                 $_SESSION['flash'] = ['type' => 'success', 'message' => 'Thêm sản phẩm thành công!'];
             } else {
+                $maSP = $_POST['MaSP'] ?? '';
                 $stmt = $pdo->prepare("UPDATE SANPHAM SET TenSP=?, TheLoai=?, MauSP=?, TinhTrang=?, SLTK=?, GiaBan=? WHERE MaSP=?");
                 $stmt->execute([$tenSP, $theLoai, $mauSP, $tinhTrang, $sltk, $giaBan, $maSP]);
                 $_SESSION['flash'] = ['type' => 'success', 'message' => 'Cập nhật sản phẩm thành công!'];
@@ -241,10 +264,20 @@ $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
         <div class="modal-content">
             <span class="close" onclick="closeModal('addModal')">&times;</span>
             <h2>Thêm Sản Phẩm</h2>
-            <form method="POST">
+            <form method="POST" onsubmit="return validateProductForm()">
                 <input type="hidden" name="action" value="add">
-                <input type="text" name="MaSP" placeholder="Mã SP" required>
+                
+                <label>Mã Sản Phẩm:</label>
+                <?php 
+                $nextMaSP = generateMaSP($pdo);
+                ?>
+                <input type="text" value="<?php echo $nextMaSP; ?>" disabled 
+                       style="background-color: #f0f0f0;">
+                
+                <label>Tên Sản Phẩm: <span style="color: red;">*</span></label>
                 <input type="text" name="TenSP" placeholder="Tên SP" required>
+                
+                <label>Thể Loại: <span style="color: red;">*</span></label>
                 <select name="TheLoai" required>
                     <option value="">Chọn Thể Loại</option>
                     <option value="Vòng tay">Vòng tay</option>
@@ -252,14 +285,24 @@ $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     <option value="Khuyên tai">Khuyên tai</option>
                     <option value="Nhẫn">Nhẫn</option>
                 </select>
-                <input type="text" name="MauSP" placeholder="Màu SP">
+                
+                <label>Màu Sản Phẩm: <span style="color: red;">*</span></label>
+                <input type="text" name="MauSP" placeholder="Màu SP" required>
+                
+                <label>Tình Trạng: <span style="color: red;">*</span></label>
                 <select name="TinhTrang" required>
+                    <option value="">Chọn Tình Trạng</option>
                     <option value="Còn hàng">Còn hàng</option>
                     <option value="Hết hàng">Hết hàng</option>
                     <option value="Ngừng kinh doanh">Ngừng kinh doanh</option>
                 </select>
+                
+                <label>Số Lượng Tồn Kho: <span style="color: red;">*</span></label>
                 <input type="number" name="SLTK" placeholder="Số Lượng Tồn Kho" min="0" required>
+                
+                <label>Giá Bán: <span style="color: red;">*</span></label>
                 <input type="number" name="GiaBan" placeholder="Giá Bán" step="0.01" min="0" required>
+                
                 <button type="submit" class="btn btn-add">Lưu</button>
             </form>
         </div>
@@ -271,10 +314,17 @@ $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
         <div class="modal-content">
             <span class="close" onclick="closeModal('editModal')">&times;</span>
             <h2>Sửa Sản Phẩm</h2>
-            <form method="POST">
+            <form method="POST" onsubmit="return validateProductForm()">
                 <input type="hidden" name="action" value="edit">
-                <input type="text" name="MaSP" value="<?php echo htmlspecialchars($editProduct['MaSP']); ?>" readonly>
+                
+                <label>Mã Sản Phẩm:</label>
+                <input type="text" name="MaSP" value="<?php echo htmlspecialchars($editProduct['MaSP']); ?>" readonly 
+                       style="background-color: #f0f0f0;">
+                
+                <label>Tên Sản Phẩm: <span style="color: red;">*</span></label>
                 <input type="text" name="TenSP" value="<?php echo htmlspecialchars($editProduct['TenSP']); ?>" required>
+                
+                <label>Thể Loại: <span style="color: red;">*</span></label>
                 <select name="TheLoai" required>
                     <option value="">Chọn Thể Loại</option>
                     <option value="Vòng tay" <?php echo $editProduct['TheLoai'] == 'Vòng tay' ? 'selected' : ''; ?>>Vòng tay</option>
@@ -282,14 +332,24 @@ $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     <option value="Khuyên tai" <?php echo $editProduct['TheLoai'] == 'Khuyên tai' ? 'selected' : ''; ?>>Khuyên tai</option>
                     <option value="Nhẫn" <?php echo $editProduct['TheLoai'] == 'Nhẫn' ? 'selected' : ''; ?>>Nhẫn</option>
                 </select>
-                <input type="text" name="MauSP" value="<?php echo htmlspecialchars($editProduct['MauSP']); ?>">
+                
+                <label>Màu Sản Phẩm: <span style="color: red;">*</span></label>
+                <input type="text" name="MauSP" value="<?php echo htmlspecialchars($editProduct['MauSP']); ?>" required>
+                
+                <label>Tình Trạng: <span style="color: red;">*</span></label>
                 <select name="TinhTrang" required>
+                    <option value="">Chọn Tình Trạng</option>
                     <option value="Còn hàng" <?php echo $editProduct['TinhTrang'] == 'Còn hàng' ? 'selected' : ''; ?>>Còn hàng</option>
                     <option value="Hết hàng" <?php echo $editProduct['TinhTrang'] == 'Hết hàng' ? 'selected' : ''; ?>>Hết hàng</option>
                     <option value="Ngừng kinh doanh" <?php echo $editProduct['TinhTrang'] == 'Ngừng kinh doanh' ? 'selected' : ''; ?>>Ngừng kinh doanh</option>
                 </select>
+                
+                <label>Số Lượng Tồn Kho: <span style="color: red;">*</span></label>
                 <input type="number" name="SLTK" value="<?php echo $editProduct['SLTK']; ?>" min="0" required>
+                
+                <label>Giá Bán: <span style="color: red;">*</span></label>
                 <input type="number" name="GiaBan" value="<?php echo $editProduct['GiaBan']; ?>" step="0.01" min="0" required>
+                
                 <button type="submit" class="btn btn-edit">Cập nhật</button>
             </form>
         </div>
@@ -305,20 +365,61 @@ $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
         </div>
     </div>
 
+    <!-- Modal xác nhận xóa -->
+    <div id="confirmDeleteModal" class="modal">
+        <div class="modal-content" style="max-width: 400px;">
+            <h2>Xác Nhận Xóa</h2>
+            <p id="confirmDeleteMessage" style="margin: 20px 0; font-size: 16px;">Bạn có chắc chắn muốn xóa sản phẩm này?</p>
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button class="btn btn-cancel" onclick="closeModal('confirmDeleteModal')" style="background-color: #999;">Hủy</button>
+                <button class="btn btn-delete" id="confirmDeleteBtn" onclick="confirmDelete()" style="background-color: #d32f2f;">Xóa</button>
+            </div>
+        </div>
+    </div>
+
     <script src="../assets/js/script.js"></script>
     <script>
         function editProduct(maSP) {
             location.href = `products.php?edit=${maSP}`;
         }
 
+        let deleteConfirmMaSP = null;
+
         function deleteProduct(maSP) {
-            if (confirm('Xóa sản phẩm này?')) {
+            deleteConfirmMaSP = maSP;
+            document.getElementById('confirmDeleteMessage').innerText = `Bạn có chắc chắn muốn xóa sản phẩm "${maSP}"?`;
+            openModal('confirmDeleteModal');
+        }
+
+        function confirmDelete() {
+            if (deleteConfirmMaSP) {
                 const form = document.createElement('form');
                 form.method = 'POST';
-                form.innerHTML = `<input type="hidden" name="action" value="delete"><input type="hidden" name="MaSP" value="${maSP}">`;
+                form.innerHTML = `<input type="hidden" name="action" value="delete"><input type="hidden" name="MaSP" value="${deleteConfirmMaSP}">`;
                 document.body.appendChild(form);
                 form.submit();
             }
+        }
+
+        function validateProductForm() {
+            const tenSP = document.querySelector('input[name="TenSP"]').value.trim();
+            const theLoai = document.querySelector('select[name="TheLoai"]').value;
+            const mauSP = document.querySelector('input[name="MauSP"]').value.trim();
+            const tinhTrang = document.querySelector('select[name="TinhTrang"]').value;
+            const sltk = document.querySelector('input[name="SLTK"]').value;
+            const giaBan = document.querySelector('input[name="GiaBan"]').value;
+            
+            if (!tenSP || !theLoai || !mauSP || !tinhTrang || sltk === '' || giaBan === '') {
+                alert('Vui lòng điền đầy đủ tất cả các trường!');
+                return false;
+            }
+            
+            if (parseFloat(sltk) < 0 || parseFloat(giaBan) < 0) {
+                alert('Số lượng tồn kho và giá bán phải là số không âm!');
+                return false;
+            }
+            
+            return true;
         }
 
         function viewStock(maSP) {

@@ -11,6 +11,12 @@ if (!isset($_SESSION['user_id'])) {
 $userRole = $_SESSION['role'] ?? 'Nhân viên';
 $userId = $_SESSION['user_id'];
 
+// Lấy flash message (nếu có) và xóa khỏi session
+$flash = $_SESSION['flash'] ?? null;
+if (isset($_SESSION['flash'])) {
+    unset($_SESSION['flash']);
+}
+
 // Hàm tạo mã phiếu xuất tự động
 function generateMaPX($pdo) {
     $stmt = $pdo->query("SELECT MAX(CAST(SUBSTRING(MaPX, 3) AS UNSIGNED)) as max_id FROM PHIEUXUAT");
@@ -81,33 +87,49 @@ if ($_POST['action'] ?? '') {
     try {
         if ($action == 'add') {
             // Thêm phiếu xuất mới
-            $maPX = generateMaPX($pdo); // Tạo mã phiếu xuất tự động
-            $ngayXuat = $_POST['NgayXuat'];
-            $maCH = $_POST['MaCH'];
+            $ngayXuat = $_POST['NgayXuat'] ?? '';
+            $maCH = $_POST['MaCH'] ?? '';
             $maTK = $_POST['MaTK'] ?? $userId;
             $tinhTrang = $_POST['TinhTrang_PX'] ?? 'Đang xử lý';
+
+            // Kiểm tra các trường bắt buộc
+            if (empty($ngayXuat) || empty($maCH) || empty($maTK) || empty($tinhTrang)) {
+                $_SESSION['flash'] = ['type' => 'error', 'message' => 'Vui lòng điền đầy đủ tất cả các trường!'];
+                header("Location: exports.php");
+                exit();
+            }
+
+            // Kiểm tra có sản phẩm
+            $products = [];
+            if (!empty($_POST['products'])) {
+                $products = json_decode($_POST['products'], true);
+            }
+            
+            if (empty($products)) {
+                $_SESSION['flash'] = ['type' => 'error', 'message' => 'Vui lòng thêm ít nhất một sản phẩm!'];
+                header("Location: exports.php");
+                exit();
+            }
+
+            $maPX = generateMaPX($pdo); // Tạo mã phiếu xuất tự động
             
             // Tạo phiếu xuất
             $stmt = $pdo->prepare("INSERT INTO PHIEUXUAT (MaPX, NgayXuat, MaCH, MaTK, TinhTrang_PX) VALUES (?, ?, ?, ?, ?)");
             $stmt->execute([$maPX, $ngayXuat, $maCH, $maTK, $tinhTrang]);
             
             // Thêm chi tiết phiếu xuất
-            if (!empty($_POST['products'])) {
-                $products = json_decode($_POST['products'], true);
-                
-                // Lấy mã CTPX lớn nhất hiện có
-                $stmt = $pdo->query("SELECT MaCTPX FROM CHITIETPHIEUXUAT ORDER BY MaCTPX DESC LIMIT 1");
-                $lastCTPX = $stmt->fetchColumn();
-                $nextNumber = 1;
-                if ($lastCTPX) {
-                    $nextNumber = intval(substr($lastCTPX, 4)) + 1;
-                }
-                
-                foreach ($products as $index => $product) {
-                    $maCTPX = 'CTPX' . str_pad($nextNumber + $index, 3, '0', STR_PAD_LEFT);
-                    $stmt = $pdo->prepare("INSERT INTO CHITIETPHIEUXUAT (MaCTPX, MaPX, MaSP, SLX) VALUES (?, ?, ?, ?)");
-                    $stmt->execute([$maCTPX, $maPX, $product['MaSP'], $product['SLX']]);
-                }
+            // Lấy mã CTPX lớn nhất hiện có
+            $stmt = $pdo->query("SELECT MaCTPX FROM CHITIETPHIEUXUAT ORDER BY MaCTPX DESC LIMIT 1");
+            $lastCTPX = $stmt->fetchColumn();
+            $nextNumber = 1;
+            if ($lastCTPX) {
+                $nextNumber = intval(substr($lastCTPX, 4)) + 1;
+            }
+            
+            foreach ($products as $index => $product) {
+                $maCTPX = 'CTPX' . str_pad($nextNumber + $index, 3, '0', STR_PAD_LEFT);
+                $stmt = $pdo->prepare("INSERT INTO CHITIETPHIEUXUAT (MaCTPX, MaPX, MaSP, SLX) VALUES (?, ?, ?, ?)");
+                $stmt->execute([$maCTPX, $maPX, $product['MaSP'], $product['SLX']]);
             }
             
         } elseif ($action == 'edit') {
@@ -120,7 +142,8 @@ if ($_POST['action'] ?? '') {
             $tinhTrang = $stmt->fetchColumn();
             
             if ($tinhTrang != 'Đang xử lý') {
-                header("Location: exports.php?error=Không thể sửa phiếu đã được xử lý");
+                $_SESSION['flash'] = ['type' => 'error', 'message' => 'Không thể sửa phiếu đã được xử lý'];
+                header("Location: exports.php");
                 exit();
             }
             
@@ -130,7 +153,8 @@ if ($_POST['action'] ?? '') {
                 $stmt->execute([$maPX]);
                 $maTK = $stmt->fetchColumn();
                 if ($maTK != $userId) {
-                    header("Location: exports.php?error=Bạn không có quyền sửa phiếu này");
+                    $_SESSION['flash'] = ['type' => 'error', 'message' => 'Bạn không có quyền sửa phiếu này'];
+                    header("Location: exports.php");
                     exit();
                 }
             }
@@ -173,7 +197,8 @@ if ($_POST['action'] ?? '') {
             $tinhTrang = $stmt->fetchColumn();
             
             if ($tinhTrang != 'Đang xử lý') {
-                header("Location: exports.php?error=Phiếu đã được xử lí không thể xóa");
+                $_SESSION['flash'] = ['type' => 'error', 'message' => 'Phiếu đã được xử lí không thể xóa'];
+                header("Location: exports.php");
                 exit();
             }
             
@@ -183,7 +208,8 @@ if ($_POST['action'] ?? '') {
                 $stmt->execute([$maPX]);
                 $maTK = $stmt->fetchColumn();
                 if ($maTK != $userId) {
-                    header("Location: exports.php?error=Bạn không có quyền xóa phiếu này");
+                    $_SESSION['flash'] = ['type' => 'error', 'message' => 'Bạn không có quyền xóa phiếu này'];
+                    header("Location: exports.php");
                     exit();
                 }
             }
@@ -355,11 +381,13 @@ if ($_POST['action'] ?? '') {
             exit();
         }
         
+        $_SESSION['flash'] = ['type' => 'success', 'message' => 'Thao tác thành công!'];
         header("Location: exports.php");
         exit();
         
     } catch (Exception $e) {
-        header("Location: exports.php?error=" . urlencode($e->getMessage()));
+        $_SESSION['flash'] = ['type' => 'error', 'message' => 'Lỗi: ' . $e->getMessage()];
+        header("Location: exports.php");
         exit();
     }
 }
@@ -512,9 +540,12 @@ function getTrangThaiDisplay($tinhTrang) {
     <div class="container">
         <h1 style="text-align: center; margin-bottom: 20px; color: #d4af37;">Quản Lý Xuất Kho</h1>
         
-        <?php if (isset($_GET['error'])): ?>
-            <div style="background: #f44336; color: white; padding: 10px; border-radius: 5px; margin-bottom: 20px;">
-                <?php echo htmlspecialchars($_GET['error']); ?>
+        <!-- Flash message sau khi thêm/sửa/xóa -->
+        <?php if ($flash): ?>
+            <div id="flashMessage" style="margin: 15px 0; padding: 12px; background: <?php echo ($flash['type'] ?? '') === 'error' ? '#ffebee' : '#e8f5e8'; ?>; 
+                        border: 1px solid <?php echo ($flash['type'] ?? '') === 'error' ? '#f44336' : '#4caf50'; ?>; 
+                        border-radius: 8px; color: <?php echo ($flash['type'] ?? '') === 'error' ? '#c62828' : '#2e7d32'; ?>; transition: opacity 0.4s ease;">
+                <?php echo htmlspecialchars($flash['message']); ?>
             </div>
         <?php endif; ?>
         
@@ -621,59 +652,51 @@ function getTrangThaiDisplay($tinhTrang) {
 
     <!-- Modal Thêm/Sửa Phiếu Xuất -->
     <div id="addModal" class="modal">
-        <div class="modal-content" style="max-width: 800px;">
+        <div class="modal-content">
             <span class="close" onclick="closeModal('addModal')">&times;</span>
             <h2 id="modalTitle">Thêm Phiếu Xuất</h2>
             
             <form method="POST" id="phieuForm">
                 <input type="hidden" name="action" id="modalAction" value="add">
                 
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">
-                    <div>
-                        <label>Mã Phiếu Xuất:</label>
-                        <?php 
-                        $nextMaPX = generateMaPX($pdo);
-                        ?>
-                        <input type="text" id="MaPX" value="<?php echo $nextMaPX; ?>" disabled 
-                               style="width: 100%; padding: 8px; background-color: #f0f0f0;">
-                    </div>
-                    <div>
-                        <label>Ngày Xuất:</label>
-                        <input type="date" name="NgayXuat" id="NgayXuat" required style="width: 100%; padding: 8px;">
-                    </div>
-                    <div>
-                        <label>Cửa Hàng:</label>
-                        <select name="MaCH" id="MaCH" required style="width: 100%; padding: 8px;">
-                            <option value="">Chọn cửa hàng</option>
-                            <?php foreach ($cuaHangs as $ch): ?>
-                                <option value="<?php echo $ch['MaCH']; ?>"><?php echo htmlspecialchars($ch['TenCH']); ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                    <div>
-                        <label>Người Xuất:</label>
-                        <select name="MaTK" id="MaTK" required style="width: 100%; padding: 8px;">
-                            <option value="">Chọn người xuất</option>
-                            <?php
-                            $users = $pdo->query("SELECT MaTK, TenTK FROM TAIKHOAN")->fetchAll();
-                            foreach ($users as $user) {
-                                $selected = ($user['MaTK'] == $userId) ? 'selected' : '';
-                                echo "<option value='{$user['MaTK']}' {$selected}>{$user['TenTK']}</option>";
-                            }
-                            ?>
-                        </select>
-                    </div>
-                    <div style="grid-column: 1 / -1;">
-                        <label>Tình Trạng:</label>
-                        <select name="TinhTrang_PX" id="TinhTrang_PX" required style="width: 100%; padding: 8px;">
-                            <option value="Đang xử lý" selected>Đang xử lý</option>
-                            <option value="Đã duyệt">Đã duyệt</option>
-                            <option value="Bị từ chối">Bị từ chối</option>
-                            <option value="Hoàn thành">Hoàn thành</option>
-                            <option value="Có thay đổi">Có thay đổi</option>
-                        </select>
-                    </div>
-                </div>
+                <label>Mã Phiếu Xuất:</label>
+                <?php 
+                $nextMaPX = generateMaPX($pdo);
+                ?>
+                <input type="text" id="MaPX" value="<?php echo $nextMaPX; ?>" disabled 
+                       style="background-color: #f0f0f0;">
+                
+                <label>Ngày Xuất:</label>
+                <input type="date" name="NgayXuat" id="NgayXuat" required>
+                
+                <label>Cửa Hàng:</label>
+                <select name="MaCH" id="MaCH" required>
+                    <option value="">Chọn cửa hàng</option>
+                    <?php foreach ($cuaHangs as $ch): ?>
+                        <option value="<?php echo $ch['MaCH']; ?>"><?php echo htmlspecialchars($ch['TenCH']); ?></option>
+                    <?php endforeach; ?>
+                </select>
+                
+                <label>Người Xuất:</label>
+                <select name="MaTK" id="MaTK" required>
+                    <option value="">Chọn người xuất</option>
+                    <?php
+                    $users = $pdo->query("SELECT MaTK, TenTK FROM TAIKHOAN")->fetchAll();
+                    foreach ($users as $user) {
+                        $selected = ($user['MaTK'] == $userId) ? 'selected' : '';
+                        echo "<option value='{$user['MaTK']}' {$selected}>{$user['TenTK']}</option>";
+                    }
+                    ?>
+                </select>
+                
+                <label>Tình Trạng:</label>
+                <select name="TinhTrang_PX" id="TinhTrang_PX" required>
+                    <option value="Đang xử lý" selected>Đang xử lý</option>
+                    <option value="Đã duyệt">Đã duyệt</option>
+                    <option value="Bị từ chối">Bị từ chối</option>
+                    <option value="Hoàn thành">Hoàn thành</option>
+                    <option value="Có thay đổi">Có thay đổi</option>
+                </select>
 
                 <h3>Chi Tiết Sản Phẩm</h3>
                 <div id="productsList">
@@ -699,11 +722,8 @@ function getTrangThaiDisplay($tinhTrang) {
                 
                 <button type="button" onclick="addProductRow()" class="btn btn-add" style="margin: 10px 0;">+ Thêm sản phẩm</button>
                 
-                <div style="display: flex; justify-content: center; gap: 10px; margin-top: 20px;">
-                    <input type="hidden" name="products" id="productsData">
-                    <button type="submit" class="btn btn-add" onclick="return validateForm()">Lưu phiếu xuất</button>
-                    <button type="button" class="btn btn-cancel" onclick="closeModal('addModal')">Hủy</button>
-                </div>
+                <input type="hidden" name="products" id="productsData">
+                <button type="submit" class="btn btn-add" onclick="return validateForm()">Lưu</button>
             </form>
         </div>
     </div>
@@ -805,6 +825,18 @@ function getTrangThaiDisplay($tinhTrang) {
         </div>
     </div>
 
+    <!-- Modal xác nhận xóa -->
+    <div id="confirmDeleteModal" class="modal">
+        <div class="modal-content" style="max-width: 400px;">
+            <h2>Xác Nhận Xóa</h2>
+            <p id="confirmDeleteMessage" style="margin: 20px 0; font-size: 16px;">Bạn có chắc chắn muốn xóa phiếu xuất này?</p>
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button class="btn btn-cancel" onclick="closeModal('confirmDeleteModal')" style="background-color: #999;">Hủy</button>
+                <button class="btn btn-delete" id="confirmDeleteBtn" onclick="confirmDelete()" style="background-color: #d32f2f;">Xóa</button>
+            </div>
+        </div>
+    </div>
+
     <script src="../assets/js/script.js"></script>
     <script>
         function openAddModal() {
@@ -888,15 +920,6 @@ function getTrangThaiDisplay($tinhTrang) {
                 });
         }
 
-        function deletePhieu(maPX) {
-            if (confirm('Bạn có chắc chắn muốn xóa phiếu xuất này?')) {
-                const form = document.createElement('form');
-                form.method = 'POST';
-                form.innerHTML = `<input type="hidden" name="action" value="delete"><input type="hidden" name="MaPX" value="${maPX}">`;
-                document.body.appendChild(form);
-                form.submit();
-            }
-        }
 
         function viewDetail(maPX, canEdit, canDelete) {
             fetch(`exports.php?action=get_detail&maPX=${encodeURIComponent(maPX)}`)
@@ -1054,11 +1077,19 @@ function getTrangThaiDisplay($tinhTrang) {
                 });
         }
 
+        let deleteConfirmMaPX = null;
+
         function deleteExport(maPX) {
-            if (confirm('Bạn có chắc chắn muốn xóa phiếu xuất này?')) {
+            deleteConfirmMaPX = maPX;
+            document.getElementById('confirmDeleteMessage').innerText = `Bạn có chắc chắn muốn xóa phiếu xuất "${maPX}"?`;
+            openModal('confirmDeleteModal');
+        }
+
+        function confirmDelete() {
+            if (deleteConfirmMaPX) {
                 const form = document.createElement('form');
                 form.method = 'POST';
-                form.innerHTML = `<input type="hidden" name="action" value="delete"><input type="hidden" name="MaPX" value="${maPX}">`;
+                form.innerHTML = `<input type="hidden" name="action" value="delete"><input type="hidden" name="MaPX" value="${deleteConfirmMaPX}">`;
                 document.body.appendChild(form);
                 form.submit();
             }
@@ -1199,8 +1230,24 @@ function getTrangThaiDisplay($tinhTrang) {
         }
 
         function validateForm() {
+            // Kiểm tra các trường bắt buộc
+            const ngayXuat = document.getElementById('NgayXuat').value;
+            const maCH = document.getElementById('MaCH').value;
+            const maTK = document.getElementById('MaTK').value;
+            const tinhTrang = document.getElementById('TinhTrang_PX').value;
+            
+            if (!ngayXuat || !maCH || !maTK || !tinhTrang) {
+                alert('Vui lòng điền đầy đủ tất cả các trường!');
+                return false;
+            }
+            
             const productRows = document.querySelectorAll('.product-row');
             const products = [];
+            
+            if (productRows.length === 0) {
+                alert('Vui lòng thêm ít nhất một sản phẩm!');
+                return false;
+            }
             
             for (let row of productRows) {
                 const select = row.querySelector('.product-select');
@@ -1245,6 +1292,18 @@ function getTrangThaiDisplay($tinhTrang) {
         function closeModal(modalId) {
             document.getElementById(modalId).style.display = 'none';
         }
+
+        // Tự ẩn flash message sau 4s (nếu có)
+        document.addEventListener('DOMContentLoaded', function() {
+            const flash = document.getElementById('flashMessage');
+            if (!flash) return;
+            setTimeout(function() {
+                flash.style.opacity = '0';
+                setTimeout(function() {
+                    if (flash.parentNode) flash.parentNode.removeChild(flash);
+                }, 500);
+            }, 4000);
+        });
     </script>
 </body>
 </html>

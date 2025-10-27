@@ -10,6 +10,14 @@ if (!isset($_SESSION['user_id'])) {
 
 $userRole = $_SESSION['role'] ?? 'Nhân viên';
 
+// Hàm tạo mã cửa hàng tự động
+function generateMaCH($pdo) {
+    $stmt = $pdo->query("SELECT MAX(CAST(SUBSTRING(MaCH, 3) AS UNSIGNED)) as max_id FROM CUAHANG");
+    $result = $stmt->fetch();
+    $next_id = ($result['max_id'] ?? 0) + 1;
+    return 'CH' . str_pad($next_id, 3, '0', STR_PAD_LEFT);
+}
+
 // Lấy flash message (nếu có) và xóa khỏi session
 $flash = $_SESSION['flash'] ?? null;
 if (isset($_SESSION['flash'])) {
@@ -32,16 +40,31 @@ if ($_POST['action'] ?? '') {
     $action = $_POST['action'];
     try {
         if ($action == 'add' || $action == 'edit') {
-            $maCH = $_POST['MaCH'] ?? '';
-            $tenCH = $_POST['TenCH'] ?? '';
-            $diaChi = $_POST['DiaChi'] ?? '';
-            $SoDienThoai = $_POST['SoDienThoai'] ?? '';
+            $tenCH = trim($_POST['TenCH'] ?? '');
+            $diaChi = trim($_POST['DiaChi'] ?? '');
+            $SoDienThoai = trim($_POST['SoDienThoai'] ?? '');
+
+            // Kiểm tra các trường bắt buộc
+            if (empty($tenCH) || empty($diaChi) || empty($SoDienThoai)) {
+                $_SESSION['flash'] = ['type' => 'error', 'message' => 'Vui lòng điền đầy đủ tất cả các trường!'];
+                header("Location: stores.php");
+                exit();
+            }
+
+            // Kiểm tra định dạng số điện thoại (10-11 số, bắt đầu bằng 0)
+            if (!preg_match('/^0[0-9]{9,10}$/', $SoDienThoai)) {
+                $_SESSION['flash'] = ['type' => 'error', 'message' => 'Số điện thoại không hợp lệ! Phải có 10-11 số và bắt đầu bằng 0.'];
+                header("Location: stores.php");
+                exit();
+            }
 
             if ($action == 'add') {
+                $maCH = generateMaCH($pdo);
                 $stmt = $pdo->prepare("INSERT INTO CUAHANG (MaCH, TenCH, DiaChi, SoDienThoai) VALUES (?, ?, ?, ?)");
                 $stmt->execute([$maCH, $tenCH, $diaChi, $SoDienThoai]);
                 $_SESSION['flash'] = ['type' => 'success', 'message' => 'Thêm cửa hàng thành công!'];
             } else {
+                $maCH = $_POST['MaCH'] ?? '';
                 $stmt = $pdo->prepare("UPDATE CUAHANG SET TenCH=?, DiaChi=?, SoDienThoai=? WHERE MaCH=?");
                 $stmt->execute([$tenCH, $diaChi, $SoDienThoai, $maCH]);
                 $_SESSION['flash'] = ['type' => 'success', 'message' => 'Cập nhật cửa hàng thành công!'];
@@ -183,12 +206,26 @@ $stores = $stmt->fetchAll(PDO::FETCH_ASSOC);
         <div class="modal-content">
             <span class="close" onclick="closeModal('addModal')">&times;</span>
             <h2>Thêm Cửa Hàng</h2>
-            <form method="POST">
+            <form method="POST" onsubmit="return validateStoreForm()">
                 <input type="hidden" name="action" value="add">
-                <input type="text" name="MaCH" placeholder="Mã Cửa Hàng" required>
+                
+                <label>Mã Cửa Hàng:</label>
+                <?php 
+                $nextMaCH = generateMaCH($pdo);
+                ?>
+                <input type="text" value="<?php echo $nextMaCH; ?>" disabled 
+                       style="background-color: #f0f0f0;">
+                
+                <label>Tên Cửa Hàng: <span style="color: red;">*</span></label>
                 <input type="text" name="TenCH" placeholder="Tên Cửa Hàng" required>
-                <input type="text" name="DiaChi" placeholder="Địa Chỉ">
-                <input type="text" name="SoDienThoai" placeholder="Số điện thoại">
+                
+                <label>Địa Chỉ: <span style="color: red;">*</span></label>
+                <input type="text" name="DiaChi" placeholder="Địa Chỉ" required>
+                
+                <label>Số điện thoại: <span style="color: red;">*</span></label>
+                <input type="tel" name="SoDienThoai" placeholder="Số điện thoại (VD: 0901234567)" 
+                       pattern="0[0-9]{9,10}" title="Số điện thoại phải có 10-11 số và bắt đầu bằng 0" required>
+                
                 <button type="submit" class="btn btn-add">Lưu</button>
             </form>
         </div>
@@ -200,17 +237,40 @@ $stores = $stmt->fetchAll(PDO::FETCH_ASSOC);
         <div class="modal-content">
             <span class="close" onclick="closeModal('editModal')">&times;</span>
             <h2>Sửa Cửa Hàng</h2>
-            <form method="POST">
+            <form method="POST" onsubmit="return validateStoreForm()">
                 <input type="hidden" name="action" value="edit">
-                <input type="text" name="MaCH" value="<?php echo htmlspecialchars($editStore['MaCH']); ?>" readonly>
+                
+                <label>Mã Cửa Hàng:</label>
+                <input type="text" name="MaCH" value="<?php echo htmlspecialchars($editStore['MaCH']); ?>" readonly 
+                       style="background-color: #f0f0f0;">
+                
+                <label>Tên Cửa Hàng: <span style="color: red;">*</span></label>
                 <input type="text" name="TenCH" value="<?php echo htmlspecialchars($editStore['TenCH']); ?>" required>
-                <input type="text" name="DiaChi" value="<?php echo htmlspecialchars($editStore['DiaChi']); ?>">
-                <input type="text" name="SoDienThoai" value="<?php echo htmlspecialchars($editStore['SoDienThoai']); ?>">
+                
+                <label>Địa Chỉ: <span style="color: red;">*</span></label>
+                <input type="text" name="DiaChi" value="<?php echo htmlspecialchars($editStore['DiaChi']); ?>" required>
+                
+                <label>Số điện thoại: <span style="color: red;">*</span></label>
+                <input type="tel" name="SoDienThoai" value="<?php echo htmlspecialchars($editStore['SoDienThoai']); ?>" 
+                       pattern="0[0-9]{9,10}" title="Số điện thoại phải có 10-11 số và bắt đầu bằng 0" required>
+                
                 <button type="submit" class="btn btn-edit">Cập nhật</button>
             </form>
         </div>
     </div>
     <?php endif; ?>
+
+    <!-- Modal xác nhận xóa -->
+    <div id="confirmDeleteModal" class="modal">
+        <div class="modal-content" style="max-width: 400px;">
+            <h2>Xác Nhận Xóa</h2>
+            <p id="confirmDeleteMessage" style="margin: 20px 0; font-size: 16px;">Bạn có chắc chắn muốn xóa cửa hàng này?</p>
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button class="btn btn-cancel" onclick="closeModal('confirmDeleteModal')" style="background-color: #999;">Hủy</button>
+                <button class="btn btn-delete" id="confirmDeleteBtn" onclick="confirmDelete()" style="background-color: #d32f2f;">Xóa</button>
+            </div>
+        </div>
+    </div>
 
     <script src="../assets/js/script.js"></script>
     <script>
@@ -218,14 +278,41 @@ $stores = $stmt->fetchAll(PDO::FETCH_ASSOC);
             location.href = `stores.php?edit=${maCH}`;
         }
 
+        let deleteConfirmMaCH = null;
+
         function deleteStore(maCH) {
-            if (confirm('Xóa cửa hàng này?')) {
+            deleteConfirmMaCH = maCH;
+            document.getElementById('confirmDeleteMessage').innerText = `Bạn có chắc chắn muốn xóa cửa hàng "${maCH}"?`;
+            openModal('confirmDeleteModal');
+        }
+
+        function confirmDelete() {
+            if (deleteConfirmMaCH) {
                 const form = document.createElement('form');
                 form.method = 'POST';
-                form.innerHTML = `<input type="hidden" name="action" value="delete"><input type="hidden" name="MaCH" value="${maCH}">`;
+                form.innerHTML = `<input type="hidden" name="action" value="delete"><input type="hidden" name="MaCH" value="${deleteConfirmMaCH}">`;
                 document.body.appendChild(form);
                 form.submit();
             }
+        }
+
+        function validateStoreForm() {
+            const tenCH = document.querySelector('input[name="TenCH"]').value.trim();
+            const diaChi = document.querySelector('input[name="DiaChi"]').value.trim();
+            const soDienThoai = document.querySelector('input[name="SoDienThoai"]').value.trim();
+            
+            if (!tenCH || !diaChi || !soDienThoai) {
+                alert('Vui lòng điền đầy đủ tất cả các trường!');
+                return false;
+            }
+            
+            const phoneRegex = /^0[0-9]{9,10}$/;
+            if (!phoneRegex.test(soDienThoai)) {
+                alert('Số điện thoại không hợp lệ! Phải có 10-11 số và bắt đầu bằng 0.');
+                return false;
+            }
+            
+            return true;
         }
 
         // Tự ẩn flash message sau 4s (nếu có)

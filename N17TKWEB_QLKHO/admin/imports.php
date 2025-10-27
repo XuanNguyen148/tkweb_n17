@@ -10,6 +10,12 @@ if (!isset($_SESSION['user_id'])) {
 
 $userRole = $_SESSION['role'] ?? 'Nhân viên';
 
+// Lấy flash message (nếu có) và xóa khỏi session
+$flash = $_SESSION['flash'] ?? null;
+if (isset($_SESSION['flash'])) {
+    unset($_SESSION['flash']);
+}
+
 $finalStatuses = ['Hoàn thành', 'Có thay đổi', 'Bị từ chối'];
 $mutableStatuses = ['Đang xử lý', 'Đã duyệt'];
 
@@ -43,6 +49,20 @@ if (isset($_POST['action']) && !empty($_POST['action'])) {
         $slns = $_POST['SLN'] ?? [];
 
         if ($action == 'add') {
+            // Kiểm tra các trường bắt buộc
+            if (empty($ngayNhap) || empty($maTK) || empty($tinhTrang)) {
+                $_SESSION['flash'] = ['type' => 'error', 'message' => 'Vui lòng điền đầy đủ tất cả các trường!'];
+                header("Location: imports.php");
+                exit();
+            }
+
+            // Kiểm tra có ít nhất một sản phẩm
+            if (empty($maSPs) || empty(array_filter($maSPs)) || empty($slns) || empty(array_filter($slns))) {
+                $_SESSION['flash'] = ['type' => 'error', 'message' => 'Vui lòng thêm ít nhất một sản phẩm!'];
+                header("Location: imports.php");
+                exit();
+            }
+
             try {
                 $pdo->beginTransaction();
 
@@ -75,10 +95,10 @@ if (isset($_POST['action']) && !empty($_POST['action'])) {
                 }
 
                 $pdo->commit();
-                header("Location: imports.php?success=Thêm phiếu nhập thành công");
+                $_SESSION['flash'] = ['type' => 'success', 'message' => 'Thêm phiếu nhập thành công!'];
             } catch (Exception $e) {
                 $pdo->rollBack();
-                header("Location: imports.php?error=" . urlencode($e->getMessage()));
+                $_SESSION['flash'] = ['type' => 'error', 'message' => 'Lỗi khi thêm: ' . $e->getMessage()];
             }
         } else {
             try {
@@ -86,14 +106,26 @@ if (isset($_POST['action']) && !empty($_POST['action'])) {
                 $stmt = $pdo->prepare("UPDATE PHIEUNHAP SET NgayNhap=?, MaTK=?, TinhTrang_PN=? WHERE MaPN=?");
                 $stmt->execute([$ngayNhap, $maTK, $tinhTrang, $maPN]);
                 $pdo->commit();
-                header("Location: imports.php?success=Sửa phiếu nhập thành công");
+                $_SESSION['flash'] = ['type' => 'success', 'message' => 'Sửa phiếu nhập thành công!'];
             } catch (Exception $e) {
                 $pdo->rollBack();
-                header("Location: imports.php?error=" . urlencode($e->getMessage()));
+                $_SESSION['flash'] = ['type' => 'error', 'message' => 'Lỗi khi sửa: ' . $e->getMessage()];
             }
         }
     } elseif ($action == 'delete') {
         $maPN = $_POST['MaPN'] ?? '';
+        
+        // Kiểm tra trạng thái phiếu nhập - chỉ được xóa khi "Đang xử lý"
+        $stmt = $pdo->prepare("SELECT TinhTrang_PN FROM PHIEUNHAP WHERE MaPN = ?");
+        $stmt->execute([$maPN]);
+        $tinhTrang = $stmt->fetchColumn();
+        
+        if ($tinhTrang != 'Đang xử lý') {
+            $_SESSION['flash'] = ['type' => 'error', 'message' => 'Phiếu đã được xử lí không thể xóa'];
+            header("Location: imports.php");
+            exit();
+        }
+        
         try {
             $pdo->beginTransaction();
 
@@ -117,10 +149,10 @@ if (isset($_POST['action']) && !empty($_POST['action'])) {
             $stmt->execute([$maPN]);
 
             $pdo->commit();
-            header("Location: imports.php?success=Xóa phiếu nhập thành công");
+            $_SESSION['flash'] = ['type' => 'success', 'message' => 'Xóa phiếu nhập thành công!'];
         } catch (Exception $e) {
             $pdo->rollBack();
-            header("Location: imports.php?error=" . urlencode($e->getMessage()));
+            $_SESSION['flash'] = ['type' => 'error', 'message' => 'Lỗi khi xóa: ' . $e->getMessage()];
         }
     } elseif ($action == 'edit_detail') {
         $maPN = $_POST['MaPN'] ?? '';
@@ -170,13 +202,13 @@ if (isset($_POST['action']) && !empty($_POST['action'])) {
                     }
                 }
                 $pdo->commit();
-                header("Location: imports.php?success=Sửa chi tiết phiếu nhập thành công");
+                $_SESSION['flash'] = ['type' => 'success', 'message' => 'Sửa chi tiết phiếu nhập thành công!'];
             } catch (Exception $e) {
                 $pdo->rollBack();
-                header("Location: imports.php?error=" . urlencode($e->getMessage()));
+                $_SESSION['flash'] = ['type' => 'error', 'message' => 'Lỗi khi sửa chi tiết: ' . $e->getMessage()];
             }
         } else {
-            header("Location: imports.php?error=Chỉ sửa được khi trạng thái là Đang xử lý");
+            $_SESSION['flash'] = ['type' => 'error', 'message' => 'Chỉ sửa được khi trạng thái là Đang xử lý'];
         }
     } elseif ($action == 'adjustment') {
         // Xử lý nhập SLN_MOI và cộng vào SLTK
@@ -234,15 +266,16 @@ if (isset($_POST['action']) && !empty($_POST['action'])) {
                 $stmt = $pdo->prepare("UPDATE PHIEUNHAP SET TinhTrang_PN = ? WHERE MaPN = ?");
                 $stmt->execute([$newStatus, $maPN]);
                 $pdo->commit();
-                header("Location: imports.php?success=Đổi trạng thái thành công");
+                $_SESSION['flash'] = ['type' => 'success', 'message' => 'Đổi trạng thái thành công!'];
             } catch (Exception $e) {
                 $pdo->rollBack();
-                header("Location: imports.php?error=" . urlencode($e->getMessage()));
+                $_SESSION['flash'] = ['type' => 'error', 'message' => 'Lỗi khi đổi trạng thái: ' . $e->getMessage()];
             }
         } else {
-            header("Location: imports.php?error=Trạng thái không hợp lệ");
+            $_SESSION['flash'] = ['type' => 'error', 'message' => 'Trạng thái không hợp lệ'];
         }
     }
+    header("Location: imports.php");
     exit();
 }
 
@@ -364,7 +397,7 @@ $stmt = $pdo->query("
     LEFT JOIN CHITIETPHIEUNHAP ct ON p.MaPN = ct.MaPN
     LEFT JOIN SANPHAM sp ON ct.MaSP = sp.MaSP
     $where 
-    ORDER BY p.MaPN ASC
+    ORDER BY p.NgayNhap DESC, p.MaPN DESC
 ");
 $imports = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -465,7 +498,7 @@ foreach ($imports as $row) {
         <h1 style="text-align: center; margin-bottom: 20px; color: #d4af37;">Quản Lý Phiếu Nhập Kho</h1>
         
         <!-- Thanh tìm kiếm -->
-        <form method="GET" class="search-form">
+        <form method="GET" class="search-form" style="display: inline;">
             <input type="text" class="search-box" placeholder="Tìm kiếm phiếu nhập..." name="search" value="<?php echo htmlspecialchars($search); ?>">
             <button type="submit" class="btn btn-search">Tìm</button>
         </form>
@@ -473,12 +506,13 @@ foreach ($imports as $row) {
         <!-- Nút thêm -->
         <button class="btn btn-add" onclick="openModal('addModal')">Thêm Phiếu Nhập</button>
 
-        <!-- Hiển thị thông báo -->
-        <?php if (isset($_GET['success'])): ?>
-            <p style="color: green;"><?php echo htmlspecialchars($_GET['success']); ?></p>
-        <?php endif; ?>
-        <?php if (isset($_GET['error'])): ?>
-            <p style="color: red;"><?php echo htmlspecialchars($_GET['error']); ?></p>
+        <!-- Flash message sau khi thêm/sửa/xóa -->
+        <?php if ($flash): ?>
+            <div id="flashMessage" style="margin: 15px 0; padding: 12px; background: <?php echo ($flash['type'] ?? '') === 'error' ? '#ffebee' : '#e8f5e8'; ?>; 
+                        border: 1px solid <?php echo ($flash['type'] ?? '') === 'error' ? '#f44336' : '#4caf50'; ?>; 
+                        border-radius: 8px; color: <?php echo ($flash['type'] ?? '') === 'error' ? '#c62828' : '#2e7d32'; ?>; transition: opacity 0.4s ease;">
+                <?php echo htmlspecialchars($flash['message']); ?>
+            </div>
         <?php endif; ?>
 
         <div class="table-container">
@@ -569,42 +603,35 @@ foreach ($imports as $row) {
             <form method="POST" id="addImportForm">
                 <input type="hidden" name="action" value="add">
                 
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
-                    <div>
-                        <label>Mã Phiếu Nhập:</label>
-                        <?php 
-                        $nextMaPN = generateMaPN($pdo);
-                        ?>
-                        <input type="text" value="<?php echo $nextMaPN; ?>" disabled 
-                               style="width: 100%; padding: 8px; background-color: #f0f0f0;">
-                    </div>
-                    <div>
-                        <label>Ngày Nhập:</label>
-                        <input type="date" name="NgayNhap" required style="width: 100%; padding: 8px;">
-                    </div>
-                    <div>
-                        <label>Người Nhập:</label>
-                        <select name="MaTK" required style="width: 100%; padding: 8px;">
-                            <option value="">Chọn người nhập</option>
-                            <?php
-                            $users = $pdo->query("SELECT MaTK, TenTK FROM TAIKHOAN")->fetchAll();
-                            foreach ($users as $user) {
-                                echo "<option value='{$user['MaTK']}'>{$user['TenTK']}</option>";
-                            }
-                            ?>
-                        </select>
-                    </div>
-                    <div>
-                        <label>Tình Trạng:</label>
-                        <select name="TinhTrang_PN" required style="width: 100%; padding: 8px;">
-                            <option value="Đang xử lý" selected>Đang xử lý</option>
-                            <option value="Đã duyệt">Đã duyệt</option>
-                            <option value="Bị từ chối">Bị từ chối</option>
-                            <option value="Hoàn thành">Hoàn thành</option>
-                            <option value="Có thay đổi">Có thay đổi</option>
-                        </select>
-                    </div>
-                </div>
+                <label>Mã Phiếu Nhập:</label>
+                <?php 
+                $nextMaPN = generateMaPN($pdo);
+                ?>
+                <input type="text" value="<?php echo $nextMaPN; ?>" disabled 
+                       style="background-color: #f0f0f0;">
+                
+                <label>Ngày Nhập:</label>
+                <input type="date" name="NgayNhap" required>
+                
+                <label>Người Nhập:</label>
+                <select name="MaTK" required>
+                    <option value="">Chọn người nhập</option>
+                    <?php
+                    $users = $pdo->query("SELECT MaTK, TenTK FROM TAIKHOAN")->fetchAll();
+                    foreach ($users as $user) {
+                        echo "<option value='{$user['MaTK']}'>{$user['TenTK']}</option>";
+                    }
+                    ?>
+                </select>
+                
+                <label>Tình Trạng:</label>
+                <select name="TinhTrang_PN" required>
+                    <option value="Đang xử lý" selected>Đang xử lý</option>
+                    <option value="Đã duyệt">Đã duyệt</option>
+                    <option value="Bị từ chối">Bị từ chối</option>
+                    <option value="Hoàn thành">Hoàn thành</option>
+                    <option value="Có thay đổi">Có thay đổi</option>
+                </select>
 
                 <h3>Chi Tiết Sản Phẩm</h3>
                 <div id="productEntries">
@@ -631,10 +658,7 @@ foreach ($imports as $row) {
                 
                 <button type="button" onclick="addProductEntry()" class="btn btn-add" style="margin: 10px 0;">+ Thêm sản phẩm</button>
                 
-                <div style="display: flex; justify-content: center; gap: 10px; margin-top: 20px;">
-                    <button type="submit" class="btn btn-add">Lưu phiếu nhập</button>
-                    <button type="button" class="btn btn-cancel" onclick="closeModal('addModal')">Hủy</button>
-                </div>
+                <button type="submit" class="btn btn-add" onclick="return validateImportForm()">Lưu</button>
             </form>
         </div>
     </div>
@@ -978,6 +1002,37 @@ foreach ($imports as $row) {
             }
         }
 
+        function validateImportForm() {
+            const ngayNhap = document.querySelector('input[name="NgayNhap"]').value;
+            const maTK = document.querySelector('select[name="MaTK"]').value;
+            const tinhTrang = document.querySelector('select[name="TinhTrang_PN"]').value;
+            
+            if (!ngayNhap || !maTK || !tinhTrang) {
+                alert('Vui lòng điền đầy đủ tất cả các trường!');
+                return false;
+            }
+            
+            const productEntries = document.querySelectorAll('.product-entry');
+            let hasValidProduct = false;
+            
+            for (let entry of productEntries) {
+                const maSP = entry.querySelector('select[name="MaSP[]"]').value;
+                const sln = entry.querySelector('input[name="SLN[]"]').value;
+                
+                if (maSP && sln && parseInt(sln) > 0) {
+                    hasValidProduct = true;
+                    break;
+                }
+            }
+            
+            if (!hasValidProduct) {
+                alert('Vui lòng thêm ít nhất một sản phẩm hợp lệ!');
+                return false;
+            }
+            
+            return true;
+        }
+
         function openModal(modalId) {
             document.getElementById(modalId).style.display = 'flex';
         }
@@ -985,11 +1040,16 @@ foreach ($imports as $row) {
             document.getElementById(modalId).style.display = 'none';
         }
 
-        // Tự động reload trang sau khi hiển thị success/error để tránh resubmit prompt
-        window.addEventListener('load', function() {
-            if (window.history && window.history.pushState) {
-                window.history.pushState('', null, window.location.pathname);
-            }
+        // Tự ẩn flash message sau 4s (nếu có)
+        document.addEventListener('DOMContentLoaded', function() {
+            const flash = document.getElementById('flashMessage');
+            if (!flash) return;
+            setTimeout(function() {
+                flash.style.opacity = '0';
+                setTimeout(function() {
+                    if (flash.parentNode) flash.parentNode.removeChild(flash);
+                }, 500);
+            }, 4000);
         });
     </script>
 </body>
